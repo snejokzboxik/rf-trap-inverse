@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rf-trap-forward"
-version = "0.2.0"
-description = "A tested 2D FEM forward model and convergence toolkit for a synchronous RF quadrupole trap."
+version = "0.3.0"
+description = "A tested RF-trap forward model with convergence and reference-dataset validation."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 rf-trap-convergence = "rf_trap_forward.cli:main"
 rf-trap-investigate-extra-candidate = "rf_trap_forward.candidate_diagnostics:main"
+rf-trap-reference-dataset = "rf_trap_forward.dataset:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8.3,<10"]

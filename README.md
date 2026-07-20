@@ -1,4 +1,4 @@
-# RF trap forward model and validation — milestone 2
+# RF trap forward model and reference-data validation — milestone 3
 
 This repository implements one reproducible 2D forward-model pipeline for four
 infinitely long, equal-phase cylindrical electrodes.  Given the six Cartesian
@@ -14,6 +14,12 @@ displacements of electrodes 2–4, it:
 The package also runs full mesh-size × outer-radius convergence studies, compares
 successive minima with minimum-distance spatial assignment, and writes CSV,
 Markdown, and PNG reports.
+
+Milestone three adds deterministic ingestion of the supplied `Data.txt`
+reference dataset. It preserves the eight raw electrode-displacement coordinates,
+derives the six coordinates relative to electrode 1, keeps both absolute and
+electrode-1-relative minima, and applies the forward solver's polar-angle sorting
+convention.
 
 The package uses metres and volts internally. Geometry and numerical values are
 configuration inputs; the dimensions in `examples/run_one_configuration.py` are
@@ -31,6 +37,7 @@ python -m venv .venv
 .venv\Scripts\python examples\run_one_configuration.py
 .venv\Scripts\rf-trap-convergence
 .venv\Scripts\rf-trap-investigate-extra-candidate
+.venv\Scripts\rf-trap-reference-dataset
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -59,4 +66,12 @@ metrics, Hessian-stencil sensitivity, local mesh perturbations, and diagnostic
 plots. The evidence classifies the fourth candidate as a recovered-gradient
 interpolation artifact at a mesh facet; the physical model is unchanged.
 
-This milestone intentionally contains no ML, inverse model, or dataset generator.
+The parsed reference outputs are under `validation_results/milestone_3`. See
+`docs/DATASET_FORMAT.md` for the exact schema and coordinate transformations, and
+`docs/REFERENCE_ARTICLE_NOTES.md` for the limited article facts used here. The
+article's eight-rod octupole is not assumed equivalent to this repository's
+current four-electrode FEM geometry; that relationship must be established by
+validation against the supplied data.
+
+This milestone intentionally contains no ML, inverse model, or synthetic dataset
+generator.
