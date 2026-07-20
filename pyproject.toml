@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 rf-trap-convergence = "rf_trap_forward.cli:main"
+rf-trap-investigate-extra-candidate = "rf_trap_forward.candidate_diagnostics:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8.3,<10"]

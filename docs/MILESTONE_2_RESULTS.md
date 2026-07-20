@@ -44,10 +44,33 @@ and outer radius 4.0 mm, coarse detection, refinement, duplicate merging, and
 Hessian validation all retained four candidates. The milestone-one forward API
 then selected the three lowest-`|E|²` candidates as designed.
 
-Thus, the three selected branches remain spatially consistent across the sweep,
-but one recovered-field realization contains an additional positive-Hessian local
-minimum. This may be a gradient-recovery or finite-difference artifact and must be
-investigated before claiming stable physical three-minimum topology.
+Thus, the original strict candidate-count criterion remains false even though the
+three selected branches are spatially consistent. The focused follow-up below
+classifies the additional candidate and separates this numerical detection from
+the physical-null interpretation.
+
+## Focused follow-up on the fourth candidate
+
+The follow-up investigation retained and reported all four pre-selection
+Hessian-valid candidates for the 60 µm, 4.0 mm case. The unselected candidate is
+at `(261.186943, -0.763932) µm` with `|E|² = 194.465258 V²/m²`, approximately
+245,789 times the largest value among the three selected null-like candidates.
+
+It is not a search/electrode-boundary artifact: its nearest electrode-surface and
+search-window clearances are 518.813 and 438.813 µm. It is not a duplicate: its
+nearest other candidate is 225.322 µm away, compared with the 20 µm merge
+threshold.
+
+The point is only 0.0111 µm from an internal mesh facet. Its finite-difference
+Hessian eigenvalues vary strongly with stencil size and the smaller eigenvalue
+becomes negative at a 32 µm step. The extra point is absent when the mesh size is
+perturbed to either 59 or 61 µm. The combined evidence classifies it as a
+**recovered-gradient interpolation artifact at a mesh facet**, admitted by the
+finite-difference Hessian test, rather than a fourth physical RF null.
+
+The focused tables and plots are in
+`validation_results/milestone_2_extra_candidate/extra_candidate_report.md`.
+No physical equation, boundary condition, or selection rule was changed.
 
 ## Reproducibility correction
 
@@ -71,5 +94,6 @@ The complete outputs are in `validation_results/milestone_2`:
 - `mesh_refinement_minima.png`;
 - `outer_radius_minima.png`.
 
-Fourteen tests pass, including synthetic/mocked convergence logic and headless
-artifact generation. No ML, inverse model, or bulk dataset generation was added.
+Eighteen tests pass, including synthetic/mocked convergence and candidate-
+classification logic plus headless artifact generation. No ML, inverse model,
+or bulk dataset generation was added.

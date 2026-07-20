@@ -19,4 +19,7 @@ def test_forward_pipeline_returns_three_valid_angle_sorted_minima(forward_result
         assert minimum.pseudopotential_v2_per_m2 >= 0.0
         assert np.all(minimum.hessian_eigenvalues_v2_per_m4 > 0.0)
     assert result.minima_diagnostics.hessian_validated_candidates >= 3
-
+    assert (
+        len(result.minima_diagnostics.hessian_validated_minima)
+        == result.minima_diagnostics.hessian_validated_candidates
+    )

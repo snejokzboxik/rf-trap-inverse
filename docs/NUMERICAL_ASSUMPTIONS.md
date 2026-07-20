@@ -52,6 +52,9 @@
 - If more than three validated candidates remain, the three lowest `|E|²` values
   are selected.  Fewer than three is an explicit error rather than silently
   fabricating or padding outputs.
+- `MinimaDiagnostics.hessian_validated_minima` retains every positive-Hessian
+  candidate before the lowest-three selection so numerical topology can be
+  audited without changing the forward API output.
 - Final ordering uses polar angle in `[0, 2π)` about the coordinate origin.
 
 ## Convergence reporting
@@ -81,7 +84,10 @@
   Markdown serialization, and headless plot generation.
 - Milestone two performed the provisional 3×3 numerical study. One run produced
   four Hessian-valid recovered-field candidates before selecting the required
-  three outputs, so strict three-minimum topology is not yet established.
+  three outputs. Focused follow-up found that the fourth point is 0.0111 µm from
+  an internal mesh facet, has a large nonzero `|E|²`, disappears for 59 and 61 µm
+  meshes, and has stencil-dependent curvature. It is therefore classified as a
+  recovered-gradient interpolation artifact rather than a fourth physical null.
 - A production accuracy claim still requires convergence criteria applied to the
-  supplied physical geometry and investigation of the extra recovered-field
-  candidate.
+  supplied physical geometry. The current Hessian filter is intentionally left
+  unchanged; the focused diagnostics make its facet-kink failure mode visible.

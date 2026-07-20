@@ -36,13 +36,14 @@ class LocalMinimum:
 
 @dataclass(frozen=True)
 class MinimaDiagnostics:
-    """Counts describing the successive minima-search filters."""
+    """Counts and pre-selection results from the minima-search filters."""
 
     valid_coarse_points: int
     coarse_candidates: int
     refined_candidates: int
     unique_candidates: int
     hessian_validated_candidates: int
+    hessian_validated_minima: tuple[LocalMinimum, ...] = ()
 
 
 def find_local_minima(
@@ -72,6 +73,9 @@ def find_local_minima(
         refined_candidates=len(refined),
         unique_candidates=len(unique),
         hessian_validated_candidates=len(validated),
+        hessian_validated_minima=tuple(
+            sorted(validated, key=lambda item: item.pseudopotential_v2_per_m2)
+        ),
     )
     if len(validated) < config.expected_minima:
         raise MinimaSearchError(

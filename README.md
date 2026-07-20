@@ -30,6 +30,7 @@ python -m venv .venv
 .venv\Scripts\python -m pytest
 .venv\Scripts\python examples\run_one_configuration.py
 .venv\Scripts\rf-trap-convergence
+.venv\Scripts\rf-trap-investigate-extra-candidate
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -51,4 +52,11 @@ micrometres, Hessian eigenvalues, mesh size, and solver/search diagnostics. See
 `docs/NUMERICAL_ASSUMPTIONS.md` before interpreting the result quantitatively.
 
 The verified milestone-two outputs are under `validation_results/milestone_2`.
+The focused follow-up for the extra 60 µm candidate is under
+`validation_results/milestone_2_extra_candidate`. It records every
+Hessian-valid candidate before lowest-three selection, boundary and separation
+metrics, Hessian-stencil sensitivity, local mesh perturbations, and diagnostic
+plots. The evidence classifies the fourth candidate as a recovered-gradient
+interpolation artifact at a mesh facet; the physical model is unchanged.
+
 This milestone intentionally contains no ML, inverse model, or dataset generator.
