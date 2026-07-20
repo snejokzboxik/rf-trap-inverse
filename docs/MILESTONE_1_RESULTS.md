@@ -66,3 +66,5 @@ This is evidence that the pipeline behaves consistently for the demonstrator,
 not a production convergence claim.  Formal outer-radius and mesh-convergence
 criteria must be established after the physical nominal geometry is supplied.
 
+Milestone two supersedes this smoke check with a full mesh-size × outer-radius
+report and stricter topology validation. See `docs/MILESTONE_2_RESULTS.md`.

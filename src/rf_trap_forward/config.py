@@ -56,7 +56,9 @@ class MeshConfig:
     characteristic_length_m: float
     boundary_tolerance_m: float = 1.0e-9
     gmsh_algorithm: int = 6
-    random_seed: int = 0
+    random_seed: int = 1
+    random_factor: float = 0.0
+    reproducible: bool = True
 
     def __post_init__(self) -> None:
         """Validate the mesh controls after construction."""
@@ -67,8 +69,10 @@ class MeshConfig:
             raise ValueError("boundary_tolerance_m must be finite and positive")
         if self.gmsh_algorithm <= 0:
             raise ValueError("gmsh_algorithm must be positive")
-        if self.random_seed < 0:
-            raise ValueError("random_seed must be non-negative")
+        if self.random_seed <= 0:
+            raise ValueError("random_seed must be positive for reproducible Gmsh runs")
+        if not np.isfinite(self.random_factor) or self.random_factor < 0.0:
+            raise ValueError("random_factor must be finite and non-negative")
 
 
 @dataclass(frozen=True)

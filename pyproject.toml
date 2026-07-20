@@ -4,16 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rf-trap-forward"
-version = "0.1.0"
-description = "A tested 2D FEM forward model for a synchronous RF quadrupole trap."
+version = "0.2.0"
+description = "A tested 2D FEM forward model and convergence toolkit for a synchronous RF quadrupole trap."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "gmsh>=4.13,<5",
+    "matplotlib>=3.8,<4",
     "numpy>=1.26,<3",
     "scikit-fem>=11,<13",
     "scipy>=1.13,<2",
 ]
+
+[project.scripts]
+rf-trap-convergence = "rf_trap_forward.cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8.3,<10"]
@@ -24,4 +28,3 @@ packages = ["src/rf_trap_forward"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
-

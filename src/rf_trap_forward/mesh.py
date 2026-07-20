@@ -47,17 +47,18 @@ def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
     owned_session = not bool(gmsh.isInitialized())
     previous_model = gmsh.model.getCurrent() if not owned_session else ""
     if owned_session:
-        gmsh.initialize()
-    model_name = f"rf_trap_{uuid4().hex}"
+        gmsh.initialize(argv=[], readConfigFiles=False)
+    model_name = "rf_trap" if owned_session else f"rf_trap_{uuid4().hex}"
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         gmsh.option.setNumber("General.NumThreads", 1)
         gmsh.option.setNumber("Mesh.MaxNumThreads2D", 1)
         gmsh.option.setNumber("Mesh.Algorithm", config.gmsh_algorithm)
         gmsh.option.setNumber("Mesh.ElementOrder", 1)
+        gmsh.option.setNumber("Mesh.Reproducible", float(config.reproducible))
         gmsh.option.setNumber("Mesh.MeshSizeMin", 0.5 * config.characteristic_length_m)
         gmsh.option.setNumber("Mesh.MeshSizeMax", config.characteristic_length_m)
-        gmsh.option.setNumber("Mesh.RandomFactor", 0.0)
+        gmsh.option.setNumber("Mesh.RandomFactor", config.random_factor)
         gmsh.option.setNumber("Mesh.RandomSeed", config.random_seed)
         gmsh.model.add(model_name)
 
@@ -67,6 +68,7 @@ def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
             0.0,
             geometry.config.outer_radius_m,
             geometry.config.outer_radius_m,
+            tag=1,
         )
         hole_tags = [
             gmsh.model.occ.addDisk(
@@ -75,8 +77,9 @@ def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
                 0.0,
                 geometry.config.electrode_radius_m,
                 geometry.config.electrode_radius_m,
+                tag=index + 2,
             )
-            for center in geometry.centers_m
+            for index, center in enumerate(geometry.centers_m)
         ]
         surfaces, _ = gmsh.model.occ.cut(
             [(2, outer_tag)],
@@ -99,12 +102,14 @@ def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
             np.asarray(triangle_node_tags_raw, dtype=np.int64),
         )
     finally:
-        if gmsh.model.getCurrent() == model_name:
-            gmsh.model.remove()
         if owned_session:
+            gmsh.clear()
             gmsh.finalize()
-        elif previous_model:
-            gmsh.model.setCurrent(previous_model)
+        else:
+            if gmsh.model.getCurrent() == model_name:
+                gmsh.model.remove()
+            if previous_model:
+                gmsh.model.setCurrent(previous_model)
 
     mesh = MeshTri(points_m.T, triangles.T).oriented()
     outer_nodes, electrode_nodes = _classify_boundary_nodes(mesh, geometry, config)
@@ -169,4 +174,3 @@ def _classify_boundary_nodes(
             "some mesh boundary nodes were not classified; increase boundary_tolerance_m"
         )
     return outer_nodes, electrode_nodes
-

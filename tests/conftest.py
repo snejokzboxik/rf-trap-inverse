@@ -7,13 +7,10 @@ import pytest
 
 from rf_trap_forward import (
     ForwardModelConfig,
-    GeometryConfig,
-    MeshConfig,
-    MinimaSearchConfig,
-    SolverConfig,
     ForwardModelResult,
     run_forward_model,
 )
+from rf_trap_forward.demo import demonstrator_config, demonstrator_displacements_m
 from rf_trap_forward.geometry import TrapGeometry, build_geometry
 from rf_trap_forward.mesh import TrapMesh, generate_mesh
 from rf_trap_forward.solver import FEMSolution, solve_potential
@@ -23,33 +20,14 @@ from rf_trap_forward.solver import FEMSolution, solve_potential
 def model_config() -> ForwardModelConfig:
     """Return the single provisional configuration used by integration tests."""
 
-    return ForwardModelConfig(
-        geometry=GeometryConfig(
-            electrode_radius_m=0.32e-3,
-            nominal_centers_m=(
-                (1.10e-3, 0.0),
-                (0.0, 1.10e-3),
-                (-1.10e-3, 0.0),
-                (0.0, -1.10e-3),
-            ),
-            outer_radius_m=4.0e-3,
-        ),
-        mesh=MeshConfig(characteristic_length_m=0.08e-3),
-        solver=SolverConfig(),
-        minima=MinimaSearchConfig(
-            search_half_extent_m=0.70e-3,
-            coarse_grid_points_per_axis=71,
-            merge_distance_m=0.02e-3,
-            hessian_step_m=0.004e-3,
-        ),
-    )
+    return demonstrator_config()
 
 
 @pytest.fixture(scope="session")
 def displacements_m() -> np.ndarray:
     """Return one deterministic asymmetric displacement input in metres."""
 
-    return np.asarray([120.0, -80.0, -150.0, 110.0, 90.0, 160.0]) * 1.0e-6
+    return demonstrator_displacements_m()
 
 
 @pytest.fixture(scope="session")

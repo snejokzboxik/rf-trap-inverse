@@ -6,9 +6,10 @@
   perfectly conducting cylindrical electrodes; end effects are absent.
 - All four electrodes have one normalized Dirichlet value (`+1 V` in the
   demonstrator), and the outer boundary has `0 V`.
-- The outer boundary is a circle centred at the coordinate origin.  It replaces
-  infinity at a finite, configurable radius; outer-radius convergence has not
-  yet been established.
+- The outer boundary is a circle centred at the coordinate origin. It replaces
+  infinity at a finite, configurable radius. Radii of 3.5, 4.0, and 5.0 mm have
+  been compared for the provisional demonstrator only; this is not validation of
+  the future physical geometry.
 - Electrode 1 is fixed.  The six model inputs are `(dx2, dy2, dx3, dy3, dx4,
   dy4)` in metres and are added to configurable nominal centres.
 - `|E|²` is only proportional to the physical RF pseudopotential.  No ion charge,
@@ -24,9 +25,12 @@
   error estimator or boundary-layer refinement is implemented in milestone 1.
 - The potential uses continuous piecewise-linear (`P1`) finite elements.  The
   weak problem is the standard Galerkin discretization of Laplace's equation.
-- Gmsh is restricted to one thread and a fixed seed.  Reproducibility is expected
-  for the pinned major-version range and platform, but byte-identical meshes are
-  not promised across Gmsh versions or operating systems.
+- Gmsh is restricted to one thread, a positive fixed seed, explicit OpenCASCADE
+  primitive tags, and its reproducibility mode. Python command-line arguments and
+  user Gmsh configuration files are excluded from initialization. Each production
+  convergence case runs in a fresh interpreter because Gmsh can retain meshing
+  state within a long-lived process. Byte-identical meshes are still not promised
+  across Gmsh versions or operating systems.
 
 ## Field and minima
 
@@ -50,13 +54,34 @@
   fabricating or padding outputs.
 - Final ordering uses polar angle in `[0, 2π)` about the coordinate origin.
 
+## Convergence reporting
+
+- The configured mesh sizes and outer radii form a full Cartesian product. This
+  is more expensive than two isolated sweeps but exposes interactions between the
+  discretization scale and finite outer boundary.
+- Stored minima retain the forward API's polar-angle ordering. Successive runs
+  are compared using minimum-total-distance bipartite assignment, which avoids a
+  false jump if polar ordering changes.
+- Mesh refinement is ordered from larger to smaller characteristic length.
+  Outer-radius comparison is ordered from smaller to larger radius.
+- “Three-minimum structure stable” requires exactly three positive-Hessian
+  candidates before final selection in every run, as well as three returned
+  minima. A user-configured coordinate tolerance is reported separately and does
+  not redefine topology.
+- Plot coordinates are displayed in micrometres for readability; CSV storage and
+  all calculations remain in SI units.
+
 ## Validation status
 
 - Unit tests cover displacement application and geometry rejection, boundary
   conformance, Dirichlet enforcement, the discrete maximum principle, the free
   linear-system residual, exact recovery of a synthetic linear field, and the
-  full demonstrator configuration.
-- A production accuracy claim requires mesh-size and outer-radius convergence
-  studies against the supplied physical geometry.  Those studies are deliberately
-  left for the next forward-model validation milestone.
-
+  full demonstrator configuration. Synthetic and mocked tests additionally cover
+  factorial sweep construction, spatial matching, stability decisions, CSV and
+  Markdown serialization, and headless plot generation.
+- Milestone two performed the provisional 3×3 numerical study. One run produced
+  four Hessian-valid recovered-field candidates before selecting the required
+  three outputs, so strict three-minimum topology is not yet established.
+- A production accuracy claim still requires convergence criteria applied to the
+  supplied physical geometry and investigation of the extra recovered-field
+  candidate.

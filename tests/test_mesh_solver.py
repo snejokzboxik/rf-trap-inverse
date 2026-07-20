@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from rf_trap_forward import ForwardModelConfig
 from rf_trap_forward.geometry import TrapGeometry
+from rf_trap_forward.geometry import build_geometry
 from rf_trap_forward.mesh import TrapMesh, generate_mesh
 
 
@@ -48,8 +51,17 @@ def test_fixed_seed_reproduces_the_mesh(
     trap_mesh: TrapMesh,
     model_config: ForwardModelConfig,
 ) -> None:
-    """The configured one-thread Gmsh run must reproduce nodes and connectivity."""
+    """Mesh output must be independent of an intervening different geometry."""
 
+    alternate_config = replace(
+        model_config.geometry,
+        outer_radius_m=3.5e-3,
+    )
+    alternate_geometry = build_geometry(
+        alternate_config,
+        geometry.displacements_m,
+    )
+    generate_mesh(alternate_geometry, model_config.mesh)
     repeated = generate_mesh(geometry, model_config.mesh)
     np.testing.assert_array_equal(repeated.mesh.p, trap_mesh.mesh.p)
     np.testing.assert_array_equal(repeated.mesh.t, trap_mesh.mesh.t)
