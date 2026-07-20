@@ -1,4 +1,4 @@
-# RF trap forward model and reference benchmarking — milestone 5
+# RF trap forward model and reference benchmarking — milestone 8
 
 This repository implements one reproducible 2D forward-model pipeline for four
 infinitely long, equal-phase cylindrical electrodes.  Given the six Cartesian
@@ -10,6 +10,10 @@ displacements of electrodes 2–4, it:
 4. recovers a continuous electric-field surrogate and evaluates `|E|²`;
 5. coarse-scans, refines, merges, Hessian-validates, and polar-angle-sorts three
    local minima.
+
+The recovered-gradient search remains the default for regression compatibility.
+Milestone eight adds explicit `recovered-gradient`, `raw-element-diagnostic`, and
+`robust` post-processing modes without changing the FEM solve or default physics.
 
 The package also runs full mesh-size × outer-radius convergence studies, compares
 successive minima with minimum-distance spatial assignment, and writes CSV,
@@ -69,6 +73,7 @@ python -m venv .venv
 .venv\Scripts\rf-trap-scale-validation
 .venv\Scripts\rf-trap-hypothesis-validation
 .venv\Scripts\rf-trap-fem-audit
+.venv\Scripts\rf-trap-robust-minima-validation
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -153,6 +158,22 @@ meet the conservative recovered-gradient artifact flag, the physical model is
 likely incomplete but the residual is not yet scientifically attributable to
 model class alone. See `docs/MILESTONE_7_RESULTS.md`. Synthetic generation
 remains unsafe.
+
+`rf-trap-robust-minima-validation` runs the milestone-eight post-processing
+study. Robust mode combines the legacy candidate source, exact zeros of the
+continuous recovered P1 field inside triangles, and local lows of the raw
+element field. It audits internal-facet distance, adjacent raw-field jumps,
+four mesh-scaled Hessian stencils, recovered-field scale, source support, and
+accept/reject reasons. Rejected candidates are retained in the output tables.
+
+For rows 1--10 at h=2 mm with the best E1,E3,E2,E4 mapping, robust selection
+improves exactly-three topology from 5/10 to 10/10, rejects 24 extra candidates,
+and selects no multi-stencil-unstable candidates. Mean reference error changes
+only from 1.08687 to 1.08754 mm, so the old selected-minimum artifacts do not
+explain a significant part of the mismatch. Robust topology remains exactly
+three at 1.5, 1.0, and 0.75 mm; all 69 branch transitions at h<=1.5 mm are
+stable within 0.25 mm. See `docs/MILESTONE_8_RESULTS.md`. The validation gate
+still fails and synthetic generation remains unsafe.
 
 This milestone intentionally contains no ML, inverse model, or synthetic dataset
 generator.

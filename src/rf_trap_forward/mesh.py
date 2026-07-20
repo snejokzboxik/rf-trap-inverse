@@ -302,3 +302,32 @@ def nearest_mesh_facet(
     distances = np.linalg.norm(position - projections, axis=1)
     index = int(np.argmin(distances))
     return float(distances[index]), index
+
+
+def nearest_internal_mesh_facet(
+    mesh: MeshTri,
+    position_m: ArrayLike,
+) -> tuple[float, int]:
+    """Return distance and index of the nearest two-sided mesh facet."""
+
+    position = np.asarray(position_m, dtype=float)
+    if position.shape != (2,) or not np.all(np.isfinite(position)):
+        raise ValueError("position_m must be one finite two-dimensional point")
+    internal_indices = np.flatnonzero(np.all(mesh.f2t >= 0, axis=0))
+    if internal_indices.size == 0:
+        raise ValueError("mesh contains no internal facets")
+    facets = mesh.facets[:, internal_indices].T
+    points = mesh.p.T
+    starts = points[facets[:, 0]]
+    ends = points[facets[:, 1]]
+    vectors = ends - starts
+    lengths_squared = np.einsum("ij,ij->i", vectors, vectors)
+    fractions = np.clip(
+        np.einsum("ij,ij->i", position - starts, vectors) / lengths_squared,
+        0.0,
+        1.0,
+    )
+    projections = starts + fractions[:, np.newaxis] * vectors
+    distances = np.linalg.norm(position - projections, axis=1)
+    local_index = int(np.argmin(distances))
+    return float(distances[local_index]), int(internal_indices[local_index])

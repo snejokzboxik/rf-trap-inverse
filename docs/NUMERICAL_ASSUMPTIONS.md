@@ -63,6 +63,29 @@
   candidate before the lowest-three selection so numerical topology can be
   audited without changing the forward API output.
 - Final ordering uses polar angle in `[0, 2π)` about the coordinate origin.
+- The original recovered-gradient search remains the default and is available
+  explicitly as `recovered-gradient`. `raw-element-diagnostic` reports local
+  lows of the elementwise-constant P1 field and does not claim sub-element
+  field zeros. `robust` is opt-in and does not change the potential solve.
+- Robust candidate sources are the legacy coarse/refined candidates, analytic
+  zeros of the recovered P1 vector field inside triangles, and raw-element
+  local lows refined against the recovered field. Source locations within the
+  existing merge tolerance are combined while retaining provenance and support
+  count.
+- Robust Hessians use four stencil lengths equal to 0.005, 0.0125, 0.025, and
+  0.05 times the actual mesh parameter. All finite signatures must be positive,
+  and the largest per-eigenvalue variation ratio must not exceed 8. A candidate
+  within 0.02 mesh parameters of an internal facet is classified as
+  facet-sensitive only if the adjacent raw-field jump is at least 0.5 of the
+  larger adjacent magnitude and the Hessian is unstable.
+- Robust recovered `|E|²` must be no more than 100 times the median scale of the
+  lowest configured candidate set, with an explicit floating-point floor. All
+  robust rejections and their individual reasons remain in diagnostics.
+- `artifact_probability` is an uncalibrated rule score: 0.25 for close-facet
+  location, 0.20 for a large adjacent raw-field jump, 0.40 for Hessian
+  instability, and 0.15 for high recovered `|E|²`, capped at one. Low, medium,
+  and high labels use 0.30 and 0.60 boundaries. No reference coordinates enter
+  the score or acceptance decision.
 
 ## Convergence reporting
 
@@ -155,3 +178,22 @@
   rate and non-monotone topology mean that the residual is not yet
   scientifically attributable to model class alone. Synthetic generation
   remains unsafe.
+- Milestone eight reruns rows 1--10 with legacy, report-only audit flags, and
+  robust selection. At h=2 mm under the best E1,E3,E2,E4 mapping, the legacy
+  mean/maximum errors are 1.08687/5.98241 mm and exactly-three topology is 5/10.
+  Robust results are 1.08754/5.98525 mm with exactly-three topology 10/10. It
+  rejects 24 candidates and selects zero candidates that fail the robust
+  multi-stencil/interpolation criteria.
+- The four Milestone 7 conservative best-mapping flags remain reproducible in
+  audit mode on rows 3, 4, 5, and 10, but their robust cell-zero counterparts
+  have stable positive Hessians. The robust mean error worsens by only 0.061%,
+  so those flags were not responsible for a significant fraction of the
+  reference mismatch.
+- Robust exactly-three topology is 10/10 at h=2.0, 1.5, 1.0, and 0.75 mm and
+  3/3 at h=0.5 mm for rows 1--3. Of 99 successive-mesh branch matches, 96 are
+  within 0.25 mm; all 69 transitions whose coarse mesh is 1.5 mm or finer pass,
+  with maximum shift 0.164062 mm. Three 2.0-to-1.5 mm shifts reach 0.299800 mm.
+- Robust post-processing therefore gives substantially stronger evidence that
+  the remaining spatial mismatch belongs to the physical model class/topology,
+  while not claiming exact mesh invariance. The validation gate still fails,
+  so synthetic generation remains unsafe.

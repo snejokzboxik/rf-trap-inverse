@@ -35,6 +35,26 @@ class LocalMinimum:
 
 
 @dataclass(frozen=True)
+class RefinedCandidate:
+    """One unique recovered-field candidate before Hessian acceptance."""
+
+    position_m: NDArray[np.float64]
+    pseudopotential_v2_per_m2: float
+    optimizer_succeeded: bool
+
+
+@dataclass(frozen=True)
+class RecoveredCandidateCollection:
+    """All intermediate products of the legacy recovered-gradient search."""
+
+    valid_coarse_points: int
+    coarse_candidates: int
+    refined_candidates: int
+    unique_candidates: tuple[RefinedCandidate, ...]
+    hessian_validated_minima: tuple[LocalMinimum, ...]
+
+
+@dataclass(frozen=True)
 class MinimaDiagnostics:
     """Counts and pre-selection results from the minima-search filters."""
 
@@ -52,26 +72,13 @@ def find_local_minima(
 ) -> tuple[tuple[LocalMinimum, ...], MinimaDiagnostics]:
     """Find, refine, merge, validate, select, and angle-sort local minima."""
 
-    coarse_points, coarse_values, valid_count = _coarse_scan(recovered_field, config)
-    candidate_points = _detect_candidates(coarse_points, coarse_values, config)
-    refined = [
-        _refine_candidate(recovered_field, point, config)
-        for point in candidate_points
-    ]
-    refined = [item for item in refined if item is not None]
-    unique = _merge_candidates(refined, config.merge_distance_m)
-    validated = [
-        minimum
-        for minimum in (
-            _validate_hessian(recovered_field, item, config) for item in unique
-        )
-        if minimum is not None
-    ]
+    collection = collect_recovered_candidates(recovered_field, config)
+    validated = list(collection.hessian_validated_minima)
     diagnostics = MinimaDiagnostics(
-        valid_coarse_points=valid_count,
-        coarse_candidates=len(candidate_points),
-        refined_candidates=len(refined),
-        unique_candidates=len(unique),
+        valid_coarse_points=collection.valid_coarse_points,
+        coarse_candidates=collection.coarse_candidates,
+        refined_candidates=collection.refined_candidates,
+        unique_candidates=len(collection.unique_candidates),
         hessian_validated_candidates=len(validated),
         hessian_validated_minima=tuple(
             sorted(validated, key=lambda item: item.pseudopotential_v2_per_m2)
@@ -87,6 +94,73 @@ def find_local_minima(
         key=lambda item: item.pseudopotential_v2_per_m2,
     )[: config.expected_minima]
     return tuple(sorted(selected, key=lambda item: item.polar_angle_rad)), diagnostics
+
+
+def collect_recovered_candidates(
+    recovered_field: RecoveredField,
+    config: MinimaSearchConfig,
+) -> RecoveredCandidateCollection:
+    """Run the legacy search while preserving candidates rejected by Hessian tests."""
+
+    coarse_points, coarse_values, valid_count = _coarse_scan(recovered_field, config)
+    candidate_points = _detect_candidates(coarse_points, coarse_values, config)
+    refined = [
+        _refine_candidate(recovered_field, point, config)
+        for point in candidate_points
+    ]
+    refined = [item for item in refined if item is not None]
+    unique_tuples = _merge_candidates(refined, config.merge_distance_m)
+    unique = tuple(
+        RefinedCandidate(
+            position_m=item[0],
+            pseudopotential_v2_per_m2=item[1],
+            optimizer_succeeded=item[2],
+        )
+        for item in unique_tuples
+    )
+    validated = [
+        minimum
+        for minimum in (
+            _validate_hessian(recovered_field, item, config) for item in unique
+        )
+        if minimum is not None
+    ]
+    return RecoveredCandidateCollection(
+        valid_coarse_points=valid_count,
+        coarse_candidates=len(candidate_points),
+        refined_candidates=len(refined),
+        unique_candidates=unique,
+        hessian_validated_minima=tuple(
+            sorted(validated, key=lambda item: item.pseudopotential_v2_per_m2)
+        ),
+    )
+
+
+def refine_recovered_candidate(
+    recovered_field: RecoveredField,
+    start_m: NDArray[np.float64],
+    config: MinimaSearchConfig,
+) -> RefinedCandidate | None:
+    """Refine one seed with the legacy recovered-field optimizer."""
+
+    result = _refine_candidate(recovered_field, start_m, config)
+    if result is None:
+        return None
+    return RefinedCandidate(
+        position_m=result[0],
+        pseudopotential_v2_per_m2=result[1],
+        optimizer_succeeded=result[2],
+    )
+
+
+def finite_difference_hessian(
+    recovered_field: RecoveredField,
+    point_m: NDArray[np.float64],
+    step_m: float,
+) -> NDArray[np.float64] | None:
+    """Evaluate the documented central-difference Hessian stencil."""
+
+    return _finite_difference_hessian(recovered_field, point_m, step_m)
 
 
 def _coarse_scan(
@@ -180,10 +254,12 @@ def _merge_candidates(
 
 def _validate_hessian(
     recovered_field: RecoveredField,
-    candidate: tuple[NDArray[np.float64], float, bool],
+    candidate: RefinedCandidate,
     config: MinimaSearchConfig,
 ) -> LocalMinimum | None:
-    position, value, optimizer_succeeded = candidate
+    position = candidate.position_m
+    value = candidate.pseudopotential_v2_per_m2
+    optimizer_succeeded = candidate.optimizer_succeeded
     hessian = _finite_difference_hessian(
         recovered_field,
         position,

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rf-trap-forward"
-version = "0.7.0"
+version = "0.8.0"
 description = "A tested RF-trap forward model with convergence and reference benchmarking."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,7 @@ rf-trap-reference-validation = "rf_trap_forward.reference_validation:main"
 rf-trap-scale-validation = "rf_trap_forward.scale_validation:main"
 rf-trap-hypothesis-validation = "rf_trap_forward.hypothesis_validation:main"
 rf-trap-fem-audit = "rf_trap_forward.numerical_audit:main"
+rf-trap-robust-minima-validation = "rf_trap_forward.robust_validation:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8.3,<10"]
