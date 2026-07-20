@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import gmsh
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 from skfem import MeshTri
 
 from .config import MeshConfig
@@ -41,6 +41,15 @@ class TrapMesh:
         return int(self.mesh.t.shape[1])
 
 
+@dataclass(frozen=True)
+class PerforatedDiskMesh:
+    """Generic disk-with-circular-holes mesh and complete boundary markers."""
+
+    mesh: MeshTri
+    outer_boundary_nodes: NDArray[np.int64]
+    hole_boundary_nodes: tuple[NDArray[np.int64], ...]
+
+
 def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
     """Generate a deterministic linear triangle mesh of the perforated disk.
 
@@ -50,11 +59,72 @@ def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
     ``characteristic_length_m``.
     """
 
+    generic = generate_perforated_disk_mesh(
+        outer_radius_m=geometry.config.outer_radius_m,
+        hole_centers_m=geometry.centers_m,
+        hole_radii_m=(geometry.config.electrode_radius_m,) * 4,
+        config=config,
+    )
+    if len(generic.hole_boundary_nodes) != 4:
+        raise RuntimeError("trap mesh must contain exactly four electrode holes")
+    electrode_nodes = np.unique(np.concatenate(generic.hole_boundary_nodes))
+    return TrapMesh(
+        mesh=generic.mesh,
+        outer_boundary_nodes=generic.outer_boundary_nodes,
+        electrode_boundary_nodes=electrode_nodes,
+        electrode_boundary_nodes_by_electrode=generic.hole_boundary_nodes,
+    )
+
+
+def generate_perforated_disk_mesh(
+    *,
+    outer_radius_m: float,
+    hole_centers_m: ArrayLike,
+    hole_radii_m: ArrayLike,
+    config: MeshConfig,
+) -> PerforatedDiskMesh:
+    """Mesh one circular disk minus non-overlapping circular holes with Gmsh.
+
+    The OpenCASCADE primitives are exact circles. The returned first-order
+    triangle mesh approximates them by chords controlled by the characteristic
+    length, matching the production trap meshing convention.
+    """
+
+    centers = np.asarray(hole_centers_m, dtype=float)
+    radii = np.asarray(hole_radii_m, dtype=float)
+    if (
+        not np.isfinite(outer_radius_m)
+        or outer_radius_m <= 0.0
+        or centers.ndim != 2
+        or centers.shape[1:] != (2,)
+        or radii.shape != (centers.shape[0],)
+        or not np.all(np.isfinite(centers))
+        or not np.all(np.isfinite(radii))
+        or np.any(radii <= 0.0)
+    ):
+        raise ValueError("disk and hole geometry must contain finite positive radii")
+    if centers.shape[0] == 0:
+        raise ValueError("at least one circular hole is required")
+    if np.any(np.linalg.norm(centers, axis=1) + radii >= outer_radius_m):
+        raise ValueError("every hole must lie strictly inside the outer disk")
+    separation = np.linalg.norm(
+        centers[:, np.newaxis, :] - centers[np.newaxis, :, :],
+        axis=2,
+    )
+    pair_indices = np.triu_indices(centers.shape[0], k=1)
+    radius_sums = radii[:, None] + radii[None, :]
+    if np.any(separation[pair_indices] <= radius_sums[pair_indices]):
+        raise ValueError("circular holes must not touch or overlap")
+
     owned_session = not bool(gmsh.isInitialized())
     previous_model = gmsh.model.getCurrent() if not owned_session else ""
     if owned_session:
         gmsh.initialize(argv=[], readConfigFiles=False)
-    model_name = "rf_trap" if owned_session else f"rf_trap_{uuid4().hex}"
+    model_name = (
+        "perforated_disk"
+        if owned_session
+        else f"perforated_disk_{uuid4().hex}"
+    )
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         gmsh.option.setNumber("General.NumThreads", 1)
@@ -72,8 +142,8 @@ def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
             0.0,
             0.0,
             0.0,
-            geometry.config.outer_radius_m,
-            geometry.config.outer_radius_m,
+            outer_radius_m,
+            outer_radius_m,
             tag=1,
         )
         hole_tags = [
@@ -81,11 +151,11 @@ def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
                 float(center[0]),
                 float(center[1]),
                 0.0,
-                geometry.config.electrode_radius_m,
-                geometry.config.electrode_radius_m,
+                float(radius),
+                float(radius),
                 tag=index + 2,
             )
-            for index, center in enumerate(geometry.centers_m)
+            for index, (center, radius) in enumerate(zip(centers, radii, strict=True))
         ]
         surfaces, _ = gmsh.model.occ.cut(
             [(2, outer_tag)],
@@ -118,16 +188,17 @@ def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
                 gmsh.model.setCurrent(previous_model)
 
     mesh = MeshTri(points_m.T, triangles.T).oriented()
-    outer_nodes, electrode_nodes, nodes_by_electrode = _classify_boundary_nodes(
+    outer_nodes, hole_nodes = classify_circular_boundary_nodes(
         mesh,
-        geometry,
-        config,
+        outer_radius_m=outer_radius_m,
+        hole_centers_m=centers,
+        hole_radii_m=radii,
+        tolerance_m=config.boundary_tolerance_m,
     )
-    return TrapMesh(
+    return PerforatedDiskMesh(
         mesh=mesh,
         outer_boundary_nodes=outer_nodes,
-        electrode_boundary_nodes=electrode_nodes,
-        electrode_boundary_nodes_by_electrode=nodes_by_electrode,
+        hole_boundary_nodes=hole_nodes,
     )
 
 
@@ -151,53 +222,83 @@ def _index_gmsh_mesh(
     return points_m, flat_triangles.reshape(-1, 3)
 
 
-def _classify_boundary_nodes(
+def classify_circular_boundary_nodes(
     mesh: MeshTri,
-    geometry: TrapGeometry,
-    config: MeshConfig,
+    *,
+    outer_radius_m: float,
+    hole_centers_m: ArrayLike,
+    hole_radii_m: ArrayLike,
+    tolerance_m: float,
 ) -> tuple[
     NDArray[np.int64],
-    NDArray[np.int64],
-    tuple[
-        NDArray[np.int64],
-        NDArray[np.int64],
-        NDArray[np.int64],
-        NDArray[np.int64],
-    ],
+    tuple[NDArray[np.int64], ...],
 ]:
+    """Classify and validate every boundary vertex of a perforated disk."""
+
     points = mesh.p.T
-    tolerance = config.boundary_tolerance_m
+    centers = np.asarray(hole_centers_m, dtype=float)
+    radii = np.asarray(hole_radii_m, dtype=float)
+    if centers.ndim != 2 or centers.shape[1:] != (2,) or radii.shape != (len(centers),):
+        raise ValueError("hole centers and radii have inconsistent shapes")
+    if not np.isfinite(tolerance_m) or tolerance_m <= 0.0:
+        raise ValueError("tolerance_m must be finite and positive")
     outer_mask = np.isclose(
         np.linalg.norm(points, axis=1),
-        geometry.config.outer_radius_m,
+        outer_radius_m,
         rtol=0.0,
-        atol=tolerance,
+        atol=tolerance_m,
     )
-    electrode_masks = []
-    for center in geometry.centers_m:
-        electrode_masks.append(
+    hole_masks = []
+    for center, radius in zip(centers, radii, strict=True):
+        hole_masks.append(
             np.isclose(
                 np.linalg.norm(points - center, axis=1),
-                geometry.config.electrode_radius_m,
+                radius,
                 rtol=0.0,
-                atol=tolerance,
+                atol=tolerance_m,
             )
         )
     outer_nodes = np.flatnonzero(outer_mask).astype(np.int64)
-    nodes_by_electrode = tuple(
-        np.flatnonzero(mask).astype(np.int64) for mask in electrode_masks
+    nodes_by_hole = tuple(
+        np.flatnonzero(mask).astype(np.int64) for mask in hole_masks
     )
-    if outer_nodes.size == 0 or any(nodes.size == 0 for nodes in nodes_by_electrode):
+    if outer_nodes.size == 0 or any(nodes.size == 0 for nodes in nodes_by_hole):
         raise RuntimeError("failed to classify all Dirichlet boundaries")
-    electrode_nodes = np.unique(np.concatenate(nodes_by_electrode))
-    if electrode_nodes.size != sum(nodes.size for nodes in nodes_by_electrode):
-        raise RuntimeError("electrode boundary classifications overlap")
-    if np.intersect1d(outer_nodes, electrode_nodes).size:
-        raise RuntimeError("outer and electrode boundary classifications overlap")
-    classified = np.union1d(outer_nodes, electrode_nodes)
+    hole_nodes = np.unique(np.concatenate(nodes_by_hole))
+    if hole_nodes.size != sum(nodes.size for nodes in nodes_by_hole):
+        raise RuntimeError("circular-hole boundary classifications overlap")
+    if np.intersect1d(outer_nodes, hole_nodes).size:
+        raise RuntimeError("outer and hole boundary classifications overlap")
+    classified = np.union1d(outer_nodes, hole_nodes)
     unclassified = np.setdiff1d(mesh.boundary_nodes(), classified)
     if unclassified.size:
         raise RuntimeError(
             "some mesh boundary nodes were not classified; increase boundary_tolerance_m"
         )
-    return outer_nodes, electrode_nodes, nodes_by_electrode
+    return outer_nodes, nodes_by_hole
+
+
+def nearest_mesh_facet(
+    mesh: MeshTri,
+    position_m: ArrayLike,
+) -> tuple[float, int]:
+    """Return Euclidean distance and index of the nearest mesh facet."""
+
+    position = np.asarray(position_m, dtype=float)
+    if position.shape != (2,) or not np.all(np.isfinite(position)):
+        raise ValueError("position_m must be one finite two-dimensional point")
+    facets = mesh.facets.T
+    points = mesh.p.T
+    starts = points[facets[:, 0]]
+    ends = points[facets[:, 1]]
+    vectors = ends - starts
+    lengths_squared = np.einsum("ij,ij->i", vectors, vectors)
+    fractions = np.clip(
+        np.einsum("ij,ij->i", position - starts, vectors) / lengths_squared,
+        0.0,
+        1.0,
+    )
+    projections = starts + fractions[:, np.newaxis] * vectors
+    distances = np.linalg.norm(position - projections, axis=1)
+    index = int(np.argmin(distances))
+    return float(distances[index]), index

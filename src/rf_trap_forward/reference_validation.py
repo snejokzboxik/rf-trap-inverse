@@ -347,7 +347,11 @@ def run_reference_validation(
         relative_displacements = dataset.relative_displacements_flat_m[row_index]
         reference_absolute = dataset.raw_minima_absolute_m[row_index]
         reference_relative = dataset.minima_relative_to_electrode1_m[row_index]
-        solver_displacements, comparison_reference, row_config = _prepare_row_inputs(
+        (
+            solver_displacements,
+            comparison_reference,
+            row_config,
+        ) = prepare_reference_row_inputs(
             raw_displacements,
             reference_absolute,
             model_config,
@@ -375,13 +379,18 @@ def run_reference_validation(
     )
 
 
-def _prepare_row_inputs(
+def prepare_reference_row_inputs(
     raw_displacements_m: NDArray[np.float64],
     reference_absolute_m: NDArray[np.float64],
     config: ForwardModelConfig,
     variant: ReferenceValidationVariant,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], ForwardModelConfig]:
-    """Map a source row into one controlled solver/comparison convention."""
+    """Map a source row into one controlled solver/comparison convention.
+
+    The returned tuple contains the six solver inputs, reference minima in the
+    convention's native comparison frame, and the possibly row-specific model
+    configuration used to apply an absolute displacement of electrode 1.
+    """
 
     source_indices = np.asarray(variant.electrode_permutation, dtype=int) - 1
     ordered = raw_displacements_m[source_indices]

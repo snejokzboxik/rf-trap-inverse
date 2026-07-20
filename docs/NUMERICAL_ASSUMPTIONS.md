@@ -118,3 +118,40 @@
   rows. Both alternating-polarity coordinate-frame variants find one validated
   minimum per row rather than three. The model is closer than Milestone 4 but is
   still not validated for synthetic dataset generation.
+- Milestone six screens all six E1-preserving E2--E4 source permutations, both
+  displacement and minimum coordinate frames, the eight global symmetries of a
+  square, positive output-scale fitting, all nontrivial binary voltage patterns
+  modulo global sign, and a linear fit of four one-electrode basis fields. All
+  variants remain diagnostic; the default all-positive physical model is not
+  changed.
+- The fitted basis vector is `(0.999926798, 0.999809418, 0.999786521, 1.0) V`,
+  effectively all-positive. Alternate binary polarities are worse or fail. The
+  best rows 1--50 diagnostic completes all rows but has exactly-three topology
+  in only 36/50, 1.27046 mm mean error, and 5.92593 mm maximum error. The
+  residual mismatch is classified primarily as model-class/topology limited,
+  and synthetic dataset generation remains unsafe.
+- Milestone seven validates the shared P1 Dirichlet solve against the analytic
+  concentric-capacitor solution and an exactly linear potential. At h=2 mm the
+  annulus potential relative L2 error is 1.61864e-4, recovered-field relative
+  L2 error is 3.79513e-3, raw element-field relative L2 error is 2.81030e-2,
+  and the free-node residual is 1.78918e-15. The linear test recovers
+  `E=(-1,0)` to 7.74095e-15 V/m, confirming the `-grad(phi)` sign.
+- Every real-scale h=2 mm boundary vertex is classified exactly once: 158 outer
+  nodes and 32 nodes on each electrode, with zero missing or overlapping nodes
+  and zero imposed-potential error. Nominal and reference rows 1--10 retain at
+  least 9.60944 mm electrode separation and 17.6386 mm outer clearance.
+- Coherent E2/E3-swapped validation mean errors are 1.08687, 1.08951, 1.07248,
+  and 1.08454 mm at h=2.0, 1.5, 1.0, and 0.75 mm. Exactly-three counts are
+  5/10, 9/10, 9/10, and 8/10. The optional rows 1--3 h=0.5 mm check reduces
+  their h=2 mm mean by only 1.097%.
+- The milestone-seven default artifact action is report-only `flag`. A candidate
+  is flagged by a documented facet-lock plus adjacent raw-field-jump criterion,
+  or by recovered `|E|^2` at least 100 times the row's best candidate. The CLI
+  also supports explicit audit-only `filter`; neither action silently changes
+  the forward API. At h=2 mm, 13/39 candidates and 4/30 selected minima are
+  flagged.
+- No assembly, sign, boundary-condition, or geometry bug was found. Error
+  plateauing supports a likely model-class mismatch, but the selected artifact
+  rate and non-monotone topology mean that the residual is not yet
+  scientifically attributable to model class alone. Synthetic generation
+  remains unsafe.

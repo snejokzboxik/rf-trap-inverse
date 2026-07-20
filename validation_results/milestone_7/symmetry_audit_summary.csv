@@ -1,0 +1,2 @@
+mesh_size_m,center_field_magnitude_v_per_m,potential_orbit_max_error_v,field_equivariance_relative_error,minimum_distance_from_center_m,hessian_validated_candidates,minimum_search_succeeded,all_symmetry_metrics_passed
+0.001,5.3877600638936184e-05,6.921817420790788e-06,0.016051500978617926,0.00028284271247461853,1,True,True

@@ -1,0 +1,16 @@
+problem,quantity,value,tolerance,passed,sample_count,units,notes
+concentric-capacitor,potential-relative-l2,0.00016186404466489223,0.02,True,2175,1,free P1 vertices
+concentric-capacitor,potential-maximum-absolute-error,0.0007274208856785647,0.03,True,2175,V,free P1 vertices
+concentric-capacitor,recovered-field-relative-l2,0.003795131428032488,0.1,True,1936,1,nodes at least 1.5 mesh lengths from both boundaries
+concentric-capacitor,recovered-field-magnitude-relative-l2,0.0027307360275554194,0.1,True,1936,1,magnitude comparison on the recovered-field mask
+concentric-capacitor,raw-element-field-relative-l2,0.028103046394123837,0.1,True,4120,1,element centroids at least one mesh length from boundaries
+concentric-capacitor,minimum-outward-radial-field,13.187555920801099,0.0,True,1936,V/m,pass means every audited recovered field points outward
+concentric-capacitor,relative-free-residual,1.7891821492213825e-15,1e-10,True,2175,1,production generic Dirichlet solver
+concentric-capacitor,Dirichlet-boundary-error,0.0,1e-12,True,190,V,inner 1 V and outer 0 V nodes
+uniform-field-disk,potential-maximum-absolute-error,9.992007221626409e-16,1e-11,True,545,V,analytic phi=x
+uniform-field-disk,field-maximum-vector-error,7.740954774721158e-15,1e-10,True,545,V/m,"expected E=(-1,0)"
+uniform-field-disk,mean-electric-field-x,-1.0,-0.999999999,True,545,V/m,pass requires negative Ex and fails for +grad(phi)
+symmetric-four-electrode,center-field-relative-to-probe-field,0.0003149612468896779,0.05,True,1,1,zero follows from D4 symmetry; tolerance includes recovered-gradient error
+symmetric-four-electrode,potential-orbit-maximum-error,6.921817420790788e-06,0.01,True,12,V,"fourfold rotations at radii 2, 4, and 6 mm"
+symmetric-four-electrode,field-rotation-relative-error,0.016051500978617926,0.1,True,12,1,recovered-field equivariance under 90-degree rotation
+symmetric-four-electrode,central-minimum-distance,0.00028284271247461853,0.001,True,1,m,one-minimum diagnostic; default expected-three physics is unchanged

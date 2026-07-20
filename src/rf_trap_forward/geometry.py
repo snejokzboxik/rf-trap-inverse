@@ -45,6 +45,40 @@ class TrapGeometry:
         return inside_outer & outside_electrodes
 
 
+@dataclass(frozen=True)
+class GeometrySanity:
+    """Clearance diagnostics for one four-electrode geometry."""
+
+    minimum_electrode_gap_m: float
+    minimum_outer_clearance_m: float
+    pairwise_center_distances_m: NDArray[np.float64]
+    valid: bool
+
+
+def geometry_sanity(
+    config: GeometryConfig,
+    centers_m: ArrayLike,
+) -> GeometrySanity:
+    """Return pair and outer-boundary clearances without hiding invalid cases."""
+
+    centers = np.asarray(centers_m, dtype=float)
+    if centers.shape != (4, 2) or not np.all(np.isfinite(centers)):
+        raise ValueError("centers_m must contain four finite (x, y) pairs")
+    radius = config.electrode_radius_m
+    separation = centers[:, np.newaxis, :] - centers[np.newaxis, :, :]
+    distances = np.linalg.norm(separation, axis=2)[np.triu_indices(4, k=1)]
+    electrode_gap = float(np.min(distances - 2.0 * radius))
+    outer_clearance = float(
+        np.min(config.outer_radius_m - (np.linalg.norm(centers, axis=1) + radius))
+    )
+    return GeometrySanity(
+        minimum_electrode_gap_m=electrode_gap,
+        minimum_outer_clearance_m=outer_clearance,
+        pairwise_center_distances_m=distances,
+        valid=electrode_gap > 0.0 and outer_clearance > 0.0,
+    )
+
+
 def build_geometry(
     config: GeometryConfig,
     displacements_m: NDArray[np.floating] | list[float] | tuple[float, ...],
@@ -59,13 +93,8 @@ def build_geometry(
 
 
 def _validate_non_overlapping_domain(config: GeometryConfig, centers_m: NDArray[np.float64]) -> None:
-    radius = config.electrode_radius_m
-    radial_extent = np.linalg.norm(centers_m, axis=1) + radius
-    if np.any(radial_extent >= config.outer_radius_m):
+    sanity = geometry_sanity(config, centers_m)
+    if sanity.minimum_outer_clearance_m <= 0.0:
         raise ValueError("every electrode must lie strictly inside the outer boundary")
-    separation = centers_m[:, np.newaxis, :] - centers_m[np.newaxis, :, :]
-    distances = np.linalg.norm(separation, axis=2)
-    upper_triangle = distances[np.triu_indices(4, k=1)]
-    if np.any(upper_triangle <= 2.0 * radius):
+    if sanity.minimum_electrode_gap_m <= 0.0:
         raise ValueError("electrode disks must not touch or overlap")
-

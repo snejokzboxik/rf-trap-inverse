@@ -1,0 +1,6 @@
+boundary,node_count,expected_potential_v,maximum_geometry_residual_m,maximum_potential_error_v,overlap_node_count,missing_boundary_node_count,complete
+outer,158,0.0,6.938893903907228e-18,0.0,0,0,True
+electrode-1,32,1.0,1.734723475976807e-18,0.0,0,0,True
+electrode-2,32,1.0,3.469446951953614e-18,0.0,0,0,True
+electrode-3,32,1.0,1.734723475976807e-18,0.0,0,0,True
+electrode-4,32,1.0,3.469446951953614e-18,0.0,0,0,True

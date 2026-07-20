@@ -17,7 +17,9 @@ from numpy.typing import NDArray
 
 from .config import ForwardModelConfig
 from .demo import demonstrator_config, demonstrator_displacements_m
+from .field import element_electric_fields
 from .forward import ForwardModelResult, run_forward_model
+from .mesh import nearest_mesh_facet
 from .minima import LocalMinimum, _finite_difference_hessian
 
 
@@ -230,9 +232,8 @@ def build_candidate_diagnostics(
         nearest_electrode = int(np.argmin(electrode_clearances))
         other_distances = np.linalg.norm(positions - minimum.position_m, axis=1)
         other_distances[rank - 1] = np.inf
-        facet_distance, facet_index = _nearest_mesh_facet(
-            result.trap_mesh.mesh.p.T,
-            result.trap_mesh.mesh.facets.T,
+        facet_distance, facet_index = nearest_mesh_facet(
+            result.trap_mesh.mesh,
             minimum.position_m,
         )
         field_jump, field_magnitudes = _facet_field_diagnostics(
@@ -414,45 +415,6 @@ def _is_selected(
     )
 
 
-def _nearest_mesh_facet(
-    points_m: NDArray[np.float64],
-    facets: NDArray[np.int64],
-    position_m: NDArray[np.float64],
-) -> tuple[float, int]:
-    starts = points_m[facets[:, 0]]
-    ends = points_m[facets[:, 1]]
-    vectors = ends - starts
-    fractions = np.clip(
-        np.einsum("ij,ij->i", position_m - starts, vectors)
-        / np.einsum("ij,ij->i", vectors, vectors),
-        0.0,
-        1.0,
-    )
-    projections = starts + fractions[:, np.newaxis] * vectors
-    distances = np.linalg.norm(position_m - projections, axis=1)
-    index = int(np.argmin(distances))
-    return float(distances[index]), index
-
-
-def _element_fields(result: ForwardModelResult) -> NDArray[np.float64]:
-    mesh = result.trap_mesh.mesh
-    triangles = mesh.t
-    points = mesh.p
-    potential = result.fem_solution.potential_v
-    x0, y0 = points[:, triangles[0]]
-    x1, y1 = points[:, triangles[1]]
-    x2, y2 = points[:, triangles[2]]
-    determinant = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
-    grad0 = np.vstack((y1 - y2, x2 - x1)) / determinant
-    grad1 = np.vstack((y2 - y0, x0 - x2)) / determinant
-    grad2 = np.vstack((y0 - y1, x1 - x0)) / determinant
-    return -(
-        potential[triangles[0]] * grad0
-        + potential[triangles[1]] * grad1
-        + potential[triangles[2]] * grad2
-    )
-
-
 def _facet_field_diagnostics(
     result: ForwardModelResult,
     facet_index: int,
@@ -461,7 +423,10 @@ def _facet_field_diagnostics(
     adjacent = adjacent[adjacent >= 0]
     if adjacent.size != 2:
         return np.nan, (np.nan, np.nan)
-    fields = _element_fields(result)
+    fields = element_electric_fields(
+        result.trap_mesh.mesh,
+        result.fem_solution.potential_v,
+    )
     magnitudes = tuple(float(np.linalg.norm(fields[:, index])) for index in adjacent)
     jump = float(np.linalg.norm(fields[:, adjacent[0]] - fields[:, adjacent[1]]))
     return jump, magnitudes
@@ -856,7 +821,7 @@ def _write_local_artifact_plot(
     map_axis.set_ylabel("y (µm)")
     map_axis.set_aspect("equal")
 
-    _, facet_index = _nearest_mesh_facet(points, mesh.facets.T, center)
+    _, facet_index = nearest_mesh_facet(mesh, center)
     facet_points = points[mesh.facets.T[facet_index]]
     tangent = facet_points[1] - facet_points[0]
     tangent /= np.linalg.norm(tangent)

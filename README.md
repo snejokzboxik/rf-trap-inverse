@@ -67,6 +67,8 @@ python -m venv .venv
 .venv\Scripts\rf-trap-reference-dataset
 .venv\Scripts\rf-trap-reference-validation
 .venv\Scripts\rf-trap-scale-validation
+.venv\Scripts\rf-trap-hypothesis-validation
+.venv\Scripts\rf-trap-fem-audit
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -121,6 +123,36 @@ completes all ten rows with mean error 1.087 mm, but only five rows have exactly
 three pre-selection Hessian-valid candidates and the maximum matched error is
 5.982 mm. This is much closer than Milestone 4, but it is not consistent enough
 to justify large synthetic dataset generation. See `docs/MILESTONE_5_RESULTS.md`.
+
+`rf-trap-hypothesis-validation` runs the milestone-six staged diagnostic. It
+screens rows 1--10 at 2.0 mm mesh over absolute/relative inputs and outputs, all
+six E1-preserving source-numbering maps, all eight square-symmetry coordinate
+transforms, fitted and physical-scale interpretations, and diagnostic voltage
+models. It promotes the best three hypotheses to rows 1--50 and writes complete
+CSV, Markdown, and plot artifacts under `validation_results/milestone_6`.
+
+The best promoted diagnostic completes 50/50 rows but has exactly-three topology
+in only 36/50, mean error 1.27046 mm, and maximum error 5.92593 mm. The fitted
+one-electrode basis vector is within 0.02135% of all-positive, while alternate
+binary polarities are worse or fail. The mismatch is therefore primarily
+model-class/topology limited, not an unresolved global orientation or polarity
+convention. See `docs/MILESTONE_6_RESULTS.md`. Synthetic generation remains
+unsafe.
+
+`rf-trap-fem-audit` runs the milestone-seven numerical audit. It validates the
+shared P1 Dirichlet solver against a concentric circular capacitor and an exact
+linear field, checks `E=-grad(phi)`, audits every circular boundary marker and
+real-scale geometry clearance, checks undisplaced D4 symmetry, flags or
+audit-filters recovered-gradient artifacts, and reruns reference rows 1--10 at
+2.0, 1.5, 1.0, and 0.75 mm meshes (plus rows 1--3 at 0.5 mm by default).
+
+The analytic, sign, boundary, geometry, and 1 mm symmetry audits pass, and no
+core FEM bug was found. Reference error improves only 0.215% from 2.0 to
+0.75 mm and topology remains non-monotone. Because 4/30 selected h=2 mm minima
+meet the conservative recovered-gradient artifact flag, the physical model is
+likely incomplete but the residual is not yet scientifically attributable to
+model class alone. See `docs/MILESTONE_7_RESULTS.md`. Synthetic generation
+remains unsafe.
 
 This milestone intentionally contains no ML, inverse model, or synthetic dataset
 generator.

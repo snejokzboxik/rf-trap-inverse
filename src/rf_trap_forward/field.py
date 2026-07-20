@@ -86,6 +86,32 @@ def recover_nodal_electric_field(
 ) -> NDArray[np.float64]:
     """Recover ``-grad(phi)`` at vertices by triangle-area-weighted averaging."""
 
+    element_fields = element_electric_fields(mesh, potential_v)
+    triangles = mesh.t
+    points = mesh.p
+    x0, y0 = points[:, triangles[0]]
+    x1, y1 = points[:, triangles[1]]
+    x2, y2 = points[:, triangles[2]]
+    determinant = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+    areas = 0.5 * np.abs(determinant)
+    accumulated = np.zeros((2, points.shape[1]), dtype=float)
+    weights = np.zeros(points.shape[1], dtype=float)
+    for local_vertex in range(3):
+        nodes = triangles[local_vertex]
+        np.add.at(accumulated[0], nodes, areas * element_fields[0])
+        np.add.at(accumulated[1], nodes, areas * element_fields[1])
+        np.add.at(weights, nodes, areas)
+    if np.any(weights <= 0.0):
+        raise ValueError("mesh contains a vertex with no adjacent triangle area")
+    return accumulated / weights
+
+
+def element_electric_fields(
+    mesh: MeshTri,
+    potential_v: ArrayLike,
+) -> NDArray[np.float64]:
+    """Return exact per-triangle ``-grad(phi)`` for a nodal P1 potential."""
+
     potential = np.asarray(potential_v, dtype=float)
     if potential.shape != (mesh.p.shape[1],):
         raise ValueError("potential_v must contain one value per mesh vertex")
@@ -106,18 +132,7 @@ def recover_nodal_electric_field(
         + potential[triangles[1]] * grad_shape_1
         + potential[triangles[2]] * grad_shape_2
     )
-    element_fields = -element_gradients
-    areas = 0.5 * np.abs(determinant)
-    accumulated = np.zeros((2, points.shape[1]), dtype=float)
-    weights = np.zeros(points.shape[1], dtype=float)
-    for local_vertex in range(3):
-        nodes = triangles[local_vertex]
-        np.add.at(accumulated[0], nodes, areas * element_fields[0])
-        np.add.at(accumulated[1], nodes, areas * element_fields[1])
-        np.add.at(weights, nodes, areas)
-    if np.any(weights <= 0.0):
-        raise ValueError("mesh contains a vertex with no adjacent triangle area")
-    return accumulated / weights
+    return -element_gradients
 
 
 def recover_field(solution: FEMSolution) -> RecoveredField:
@@ -132,4 +147,3 @@ def recover_field(solution: FEMSolution) -> RecoveredField:
         mesh=solution.trap_mesh.mesh,
         electric_field_nodes_v_per_m=nodal_field,
     )
-
