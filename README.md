@@ -1,4 +1,4 @@
-# RF trap forward model and reference-data validation — milestone 3
+# RF trap forward model and reference benchmarking — milestone 4
 
 This repository implements one reproducible 2D forward-model pipeline for four
 infinitely long, equal-phase cylindrical electrodes.  Given the six Cartesian
@@ -21,6 +21,10 @@ derives the six coordinates relative to electrode 1, keeps both absolute and
 electrode-1-relative minima, and applies the forward solver's polar-angle sorting
 convention.
 
+Milestone four benchmarks selected source rows against isolated FEM solves. It
+uses minimum-total-distance assignment, records failed configurations instead of
+discarding them, and writes per-row/per-minimum errors plus comparison plots.
+
 The package uses metres and volts internally. Geometry and numerical values are
 configuration inputs; the dimensions in `examples/run_one_configuration.py` are
 only a demonstrator because the physical nominal geometry has not yet been
@@ -38,6 +42,7 @@ python -m venv .venv
 .venv\Scripts\rf-trap-convergence
 .venv\Scripts\rf-trap-investigate-extra-candidate
 .venv\Scripts\rf-trap-reference-dataset
+.venv\Scripts\rf-trap-reference-validation
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -72,6 +77,18 @@ The parsed reference outputs are under `validation_results/milestone_3`. See
 article's eight-rod octupole is not assumed equivalent to this repository's
 current four-electrode FEM geometry; that relationship must be established by
 validation against the supplied data.
+
+The default reference benchmark evaluates rows 1–10 and writes its outputs under
+`validation_results/milestone_4`. Use `--start-row` and `--end-row` for an
+inclusive range, or `--random-count` with `--random-seed` for a reproducible
+subset. Every production row runs in a fresh interpreter so Gmsh state cannot
+couple configurations.
+
+The default milestone-four result does not validate the provisional FEM model:
+the median matched error is 3.089 mm, two rows fail to return a complete result,
+and most reference minima are outside the configured search/domain scales. Large
+synthetic dataset generation must wait for the physical geometry, electrode
+numbering/polarity convention, and a successful repeated benchmark.
 
 This milestone intentionally contains no ML, inverse model, or synthetic dataset
 generator.

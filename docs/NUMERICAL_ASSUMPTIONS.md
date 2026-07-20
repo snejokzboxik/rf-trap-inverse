@@ -91,3 +91,12 @@
 - A production accuracy claim still requires convergence criteria applied to the
   supplied physical geometry. The current Hessian filter is intentionally left
   unchanged; the focused diagnostics make its facet-kink failure mode visible.
+- Milestone four compared reference rows 1–10 in the electrode-1-relative frame.
+  Eight rows returned three selected minima, but only seven had exactly three
+  pre-selection Hessian-valid candidates. Across 24 assignment-matched minima,
+  the median error was 3.08938 mm and the maximum was 4.93435 mm.
+- The reference benchmark is outside the current demonstrator's validated scale:
+  29 of 30 reference minima are outside the ±0.7 mm search square and 13 are
+  outside the 4.0 mm outer circle. The current provisional geometry is therefore
+  not validated against the supplied data, and synthetic dataset generation is
+  not yet justified.

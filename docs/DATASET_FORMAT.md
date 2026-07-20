@@ -64,8 +64,8 @@ minima_absolute = source minima
 minima_relative = source minima - displacement_1
 ```
 
-For either frame, the three points can be sorted by increasing polar angle
-`atan2(y, x)` in the interval `[-π, π]`. This is the same convention used by the
+For either frame, the three points can be sorted by increasing polar angle after
+mapping `atan2(y, x)` to the interval `[0, 2π)`. This is the convention used by the
 forward solver. Sorting is performed within each row and does not alter the raw
 source ordering.
 
