@@ -10,6 +10,7 @@ from rf_trap_forward import ForwardModelConfig
 from rf_trap_forward.geometry import TrapGeometry
 from rf_trap_forward.geometry import build_geometry
 from rf_trap_forward.mesh import TrapMesh, generate_mesh
+from rf_trap_forward.solver import solve_potential
 
 
 def test_mesh_is_nonempty_and_conforms_to_vacuum(geometry, trap_mesh) -> None:
@@ -65,3 +66,34 @@ def test_fixed_seed_reproduces_the_mesh(
     repeated = generate_mesh(geometry, model_config.mesh)
     np.testing.assert_array_equal(repeated.mesh.p, trap_mesh.mesh.p)
     np.testing.assert_array_equal(repeated.mesh.t, trap_mesh.mesh.t)
+
+
+def test_solver_supports_explicit_per_electrode_dirichlet_values(
+    geometry: TrapGeometry,
+    trap_mesh: TrapMesh,
+    model_config: ForwardModelConfig,
+) -> None:
+    """A diagnostic alternating-polarity solve must impose each boundary value."""
+
+    potentials = (1.0, -1.0, -1.0, 1.0)
+    alternating_geometry = TrapGeometry(
+        config=replace(
+            geometry.config,
+            electrode_potentials_v=potentials,
+        ),
+        centers_m=geometry.centers_m,
+        displacements_m=geometry.displacements_m,
+    )
+    solution = solve_potential(
+        alternating_geometry,
+        trap_mesh,
+        model_config.solver,
+    )
+    for nodes, expected in zip(
+        trap_mesh.electrode_boundary_nodes_by_electrode,
+        potentials,
+        strict=True,
+    ):
+        np.testing.assert_allclose(solution.potential_v[nodes], expected, atol=0.0)
+    assert np.min(solution.potential_v) >= -1.0
+    assert np.max(solution.potential_v) <= 1.0

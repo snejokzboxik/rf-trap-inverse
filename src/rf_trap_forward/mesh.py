@@ -21,6 +21,12 @@ class TrapMesh:
     mesh: MeshTri
     outer_boundary_nodes: NDArray[np.int64]
     electrode_boundary_nodes: NDArray[np.int64]
+    electrode_boundary_nodes_by_electrode: tuple[
+        NDArray[np.int64],
+        NDArray[np.int64],
+        NDArray[np.int64],
+        NDArray[np.int64],
+    ]
 
     @property
     def number_of_nodes(self) -> int:
@@ -112,11 +118,16 @@ def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
                 gmsh.model.setCurrent(previous_model)
 
     mesh = MeshTri(points_m.T, triangles.T).oriented()
-    outer_nodes, electrode_nodes = _classify_boundary_nodes(mesh, geometry, config)
+    outer_nodes, electrode_nodes, nodes_by_electrode = _classify_boundary_nodes(
+        mesh,
+        geometry,
+        config,
+    )
     return TrapMesh(
         mesh=mesh,
         outer_boundary_nodes=outer_nodes,
         electrode_boundary_nodes=electrode_nodes,
+        electrode_boundary_nodes_by_electrode=nodes_by_electrode,
     )
 
 
@@ -144,7 +155,16 @@ def _classify_boundary_nodes(
     mesh: MeshTri,
     geometry: TrapGeometry,
     config: MeshConfig,
-) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+) -> tuple[
+    NDArray[np.int64],
+    NDArray[np.int64],
+    tuple[
+        NDArray[np.int64],
+        NDArray[np.int64],
+        NDArray[np.int64],
+        NDArray[np.int64],
+    ],
+]:
     points = mesh.p.T
     tolerance = config.boundary_tolerance_m
     outer_mask = np.isclose(
@@ -153,18 +173,25 @@ def _classify_boundary_nodes(
         rtol=0.0,
         atol=tolerance,
     )
-    electrode_mask = np.zeros(points.shape[0], dtype=bool)
+    electrode_masks = []
     for center in geometry.centers_m:
-        electrode_mask |= np.isclose(
-            np.linalg.norm(points - center, axis=1),
-            geometry.config.electrode_radius_m,
-            rtol=0.0,
-            atol=tolerance,
+        electrode_masks.append(
+            np.isclose(
+                np.linalg.norm(points - center, axis=1),
+                geometry.config.electrode_radius_m,
+                rtol=0.0,
+                atol=tolerance,
+            )
         )
     outer_nodes = np.flatnonzero(outer_mask).astype(np.int64)
-    electrode_nodes = np.flatnonzero(electrode_mask).astype(np.int64)
-    if outer_nodes.size == 0 or electrode_nodes.size == 0:
+    nodes_by_electrode = tuple(
+        np.flatnonzero(mask).astype(np.int64) for mask in electrode_masks
+    )
+    if outer_nodes.size == 0 or any(nodes.size == 0 for nodes in nodes_by_electrode):
         raise RuntimeError("failed to classify all Dirichlet boundaries")
+    electrode_nodes = np.unique(np.concatenate(nodes_by_electrode))
+    if electrode_nodes.size != sum(nodes.size for nodes in nodes_by_electrode):
+        raise RuntimeError("electrode boundary classifications overlap")
     if np.intersect1d(outer_nodes, electrode_nodes).size:
         raise RuntimeError("outer and electrode boundary classifications overlap")
     classified = np.union1d(outer_nodes, electrode_nodes)
@@ -173,4 +200,4 @@ def _classify_boundary_nodes(
         raise RuntimeError(
             "some mesh boundary nodes were not classified; increase boundary_tolerance_m"
         )
-    return outer_nodes, electrode_nodes
+    return outer_nodes, electrode_nodes, nodes_by_electrode

@@ -4,18 +4,25 @@
 
 - The calculation is a two-dimensional cross-section of infinitely long,
   perfectly conducting cylindrical electrodes; end effects are absent.
-- All four electrodes have one normalized Dirichlet value (`+1 V` in the
-  demonstrator), and the outer boundary has `0 V`.
+- The physical-model default keeps all four electrodes at the same normalized
+  Dirichlet value (`+1 V`) and the outer boundary at `0 V`. The solver now also
+  accepts an explicit four-value tuple solely for named diagnostic polarity
+  cases; this does not silently change the default.
 - The outer boundary is a circle centred at the coordinate origin. It replaces
-  infinity at a finite, configurable radius. Radii of 3.5, 4.0, and 5.0 mm have
-  been compared for the provisional demonstrator only; this is not validation of
-  the future physical geometry.
-- Electrode 1 is fixed.  The six model inputs are `(dx2, dy2, dx3, dy3, dx4,
-  dy4)` in metres and are added to configurable nominal centres.
+  infinity at a finite, configurable radius. The real-scale reference-validation
+  configuration uses 50 mm. Earlier 3.5, 4.0, and 5.0 mm studies apply only to
+  the retained demonstrator.
+- Electrode 1 is fixed. The six model inputs are `(dx2, dy2, dx3, dy3, dx4,
+  dy4)` in metres and are added to configurable nominal centres. An
+  absolute-frame validation diagnostic applies raw E1 displacement by creating a
+  row-specific geometry; the core six-coordinate API remains unchanged.
 - `|E|²` is only proportional to the physical RF pseudopotential.  No ion charge,
   mass, drive frequency, or amplitude scaling is included.
-- The nominal radius and positions in the example/tests are provisional values
-  chosen solely to exercise the pipeline.  They are not experimental inputs.
+- The example and milestone-one/two regression tests retain provisional values.
+  Reference validation instead uses 10 mm electrode radius, 11.48 mm inner
+  surface radius, 21.48 mm electrode-centre radius, and a 50 mm outer boundary.
+  With `a=21.48 mm/sqrt(2)`, numbering is E1 `(-a,+a)`, E2 `(+a,+a)`, E3
+  `(-a,-a)`, and E4 `(+a,-a)`.
 
 ## Discretization
 
@@ -100,3 +107,14 @@
   outside the 4.0 mm outer circle. The current provisional geometry is therefore
   not validated against the supplied data, and synthetic dataset generation is
   not yet justified.
+- Milestone five uses the real 50 mm geometry and an ±8 mm search square, so all
+  reference minima are within the intended search scale. Identity-numbering
+  all-positive runs complete all ten rows at 2.0, 1.5, and 1.0 mm mesh sizes;
+  mean errors decrease only from 1.47368 to 1.44011 mm. Strict exactly-three
+  topology improves from 5/10 to 9/10 rows but is not stable across all runs.
+- The best tested convention exchanges source electrodes 2 and 3 while retaining
+  the FEM numbering above. At 2.0 mm it gives 1.08687 mm mean, 0.953208 mm
+  median, and 5.98241 mm maximum error, with exactly-three topology in only 5/10
+  rows. Both alternating-polarity coordinate-frame variants find one validated
+  minimum per row rather than three. The model is closer than Milestone 4 but is
+  still not validated for synthetic dataset generation.

@@ -32,6 +32,7 @@ class GeometryConfig:
     outer_radius_m: float
     electrode_potential_v: float = 1.0
     outer_potential_v: float = 0.0
+    electrode_potentials_v: tuple[float, float, float, float] | None = None
 
     def __post_init__(self) -> None:
         """Validate the immutable configuration after construction."""
@@ -47,6 +48,20 @@ class GeometryConfig:
             raise ValueError("electrode_potential_v must be finite")
         if not np.isfinite(self.outer_potential_v):
             raise ValueError("outer_potential_v must be finite")
+        if self.electrode_potentials_v is not None:
+            potentials = np.asarray(self.electrode_potentials_v, dtype=float)
+            if potentials.shape != (4,) or not np.all(np.isfinite(potentials)):
+                raise ValueError(
+                    "electrode_potentials_v must contain four finite values"
+                )
+
+    @property
+    def resolved_electrode_potentials_v(self) -> tuple[float, float, float, float]:
+        """Return one Dirichlet value per electrode in numbering order."""
+
+        if self.electrode_potentials_v is not None:
+            return self.electrode_potentials_v
+        return (self.electrode_potential_v,) * 4
 
 
 @dataclass(frozen=True)

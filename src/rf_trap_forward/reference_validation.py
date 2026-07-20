@@ -8,10 +8,12 @@ import pickle
 import subprocess
 import sys
 import textwrap
+import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -24,6 +26,12 @@ from .config import ForwardModelConfig
 from .dataset import ReferenceDataset, load_reference_dataset
 from .demo import demonstrator_config
 from .forward import ForwardModelResult
+from .real_scale import (
+    DIAGONAL_ALTERNATING_POTENTIALS_V,
+    real_scale_forward_config,
+)
+
+DisplacementMode = Literal["electrode1-relative", "absolute"]
 
 
 @dataclass(frozen=True)
@@ -39,6 +47,7 @@ class ForwardObservation:
     coarse_candidates: int
     refined_candidates: int
     unique_candidates: int
+    runtime_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         """Validate observation dimensions and scalar diagnostics."""
@@ -61,6 +70,8 @@ class ForwardObservation:
             raise ValueError("forward-observation counts must be non-negative")
         if not np.isfinite(self.relative_free_residual):
             raise ValueError("relative_free_residual must be finite")
+        if not np.isfinite(self.runtime_seconds) or self.runtime_seconds < 0.0:
+            raise ValueError("runtime_seconds must be finite and non-negative")
         object.__setattr__(self, "minima_positions_m", positions.copy())
 
 
@@ -70,6 +81,36 @@ class ForwardFailure:
 
     error_type: str
     error_message: str
+    runtime_seconds: float = 0.0
+
+
+@dataclass(frozen=True)
+class ReferenceValidationVariant:
+    """Explicit displacement, numbering, and polarity convention for one run.
+
+    ``electrode_permutation`` maps FEM slots E1--E4 to one-based source
+    electrode numbers. E1 must remain fixed; E2--E4 may be permuted for
+    controlled numbering diagnostics.
+    """
+
+    name: str = "relative_all_positive_identity"
+    displacement_mode: DisplacementMode = "electrode1-relative"
+    electrode_permutation: tuple[int, int, int, int] = (1, 2, 3, 4)
+    polarity_name: str = "all-positive"
+
+    def __post_init__(self) -> None:
+        """Validate the diagnostic convention without changing model defaults."""
+
+        if not self.name:
+            raise ValueError("variant name must not be empty")
+        if self.displacement_mode not in ("electrode1-relative", "absolute"):
+            raise ValueError("unsupported displacement_mode")
+        if self.electrode_permutation[0] != 1:
+            raise ValueError("electrode 1 must remain the reference electrode")
+        if sorted(self.electrode_permutation) != [1, 2, 3, 4]:
+            raise ValueError("electrode_permutation must contain 1, 2, 3, 4 once")
+        if not self.polarity_name:
+            raise ValueError("polarity_name must not be empty")
 
 
 @dataclass(frozen=True)
@@ -91,8 +132,11 @@ class ReferenceValidationRow:
     row_number: int
     raw_displacements_m: NDArray[np.float64]
     relative_displacements_m: NDArray[np.float64]
+    solver_displacements_m: NDArray[np.float64]
     reference_minima_absolute_m: NDArray[np.float64]
     reference_minima_relative_m: NDArray[np.float64]
+    comparison_reference_minima_m: NDArray[np.float64]
+    runtime_seconds: float
     status: str
     observation: ForwardObservation | None
     matches: tuple[MinimumMatch, ...]
@@ -142,7 +186,9 @@ class ReferenceValidationReport:
 
     source_path: Path | None
     model_config: ForwardModelConfig
+    variant: ReferenceValidationVariant
     rows: tuple[ReferenceValidationRow, ...]
+    runtime_seconds: float
 
     def summary(self) -> ReferenceValidationSummary:
         """Compute aggregate error and completion metrics."""
@@ -279,13 +325,16 @@ def run_reference_validation(
     row_numbers: Iterable[int],
     *,
     runner: ForwardRunner | None = None,
+    variant: ReferenceValidationVariant | None = None,
 ) -> ReferenceValidationReport:
-    """Run and compare selected rows in the electrode-1 reference frame.
+    """Run and compare selected rows under an explicit diagnostic convention.
 
     Production calls isolate each Gmsh solve in a fresh interpreter. Supplying a
     runner executes in process and is intended for tests or instrumentation.
     """
 
+    selected_variant = variant or ReferenceValidationVariant()
+    started = time.perf_counter()
     selected = tuple(int(value) for value in row_numbers)
     if not selected or len(set(selected)) != len(selected):
         raise ValueError("row_numbers must be a nonempty sequence without duplicates")
@@ -298,22 +347,58 @@ def run_reference_validation(
         relative_displacements = dataset.relative_displacements_flat_m[row_index]
         reference_absolute = dataset.raw_minima_absolute_m[row_index]
         reference_relative = dataset.minima_relative_to_electrode1_m[row_index]
-        outcome = _execute_forward(relative_displacements, model_config, runner)
+        solver_displacements, comparison_reference, row_config = _prepare_row_inputs(
+            raw_displacements,
+            reference_absolute,
+            model_config,
+            selected_variant,
+        )
+        outcome = _execute_forward(solver_displacements, row_config, runner)
         rows.append(
             _build_row_record(
                 row_number,
                 raw_displacements,
                 relative_displacements,
+                solver_displacements,
                 reference_absolute,
                 reference_relative,
+                comparison_reference,
                 outcome,
             )
         )
     return ReferenceValidationReport(
         source_path=dataset.source_path,
         model_config=model_config,
+        variant=selected_variant,
         rows=tuple(rows),
+        runtime_seconds=time.perf_counter() - started,
     )
+
+
+def _prepare_row_inputs(
+    raw_displacements_m: NDArray[np.float64],
+    reference_absolute_m: NDArray[np.float64],
+    config: ForwardModelConfig,
+    variant: ReferenceValidationVariant,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], ForwardModelConfig]:
+    """Map a source row into one controlled solver/comparison convention."""
+
+    source_indices = np.asarray(variant.electrode_permutation, dtype=int) - 1
+    ordered = raw_displacements_m[source_indices]
+    if variant.displacement_mode == "electrode1-relative":
+        solver_displacements = (ordered[1:] - ordered[0]).reshape(6)
+        comparison_reference = reference_absolute_m - ordered[0]
+        return solver_displacements, comparison_reference, config
+
+    nominal_centers = np.asarray(config.geometry.nominal_centers_m, dtype=float).copy()
+    nominal_centers[0] += ordered[0]
+    row_geometry = replace(
+        config.geometry,
+        nominal_centers_m=tuple(map(tuple, nominal_centers)),
+    )
+    solver_displacements = ordered[1:].reshape(6)
+    comparison_reference = reference_absolute_m.copy()
+    return solver_displacements, comparison_reference, replace(config, geometry=row_geometry)
 
 
 def write_reference_validation_outputs(
@@ -335,7 +420,12 @@ def write_reference_validation_outputs(
     _write_csv(paths.minima_csv, _minimum_fieldnames(), _minimum_csv_records(report))
     paths.markdown_report.write_text(_markdown_report(report), encoding="utf-8")
     for row, plot_path in zip(report.rows, paths.plot_paths, strict=True):
-        _write_row_plot(row, report.model_config, plot_path)
+        _write_row_plot(
+            row,
+            report.model_config,
+            plot_path,
+            report.variant.displacement_mode,
+        )
     return paths
 
 
@@ -344,15 +434,23 @@ def _execute_forward(
     config: ForwardModelConfig,
     runner: ForwardRunner | None,
 ) -> ForwardObservation | ForwardFailure:
+    started = time.perf_counter()
     if runner is None:
-        return _run_isolated_forward(displacements_m, config)
+        outcome = _run_isolated_forward(displacements_m, config)
+        return replace(outcome, runtime_seconds=time.perf_counter() - started)
     try:
         result = runner(displacements_m, config)
         if isinstance(result, ForwardObservation):
-            return result
-        return forward_observation_from_result(result)
+            observation = result
+        else:
+            observation = forward_observation_from_result(result)
+        return replace(observation, runtime_seconds=time.perf_counter() - started)
     except Exception as error:  # validation must retain failed benchmark rows
-        return ForwardFailure(type(error).__name__, str(error))
+        return ForwardFailure(
+            type(error).__name__,
+            str(error),
+            runtime_seconds=time.perf_counter() - started,
+        )
 
 
 def _run_isolated_forward(
@@ -374,7 +472,30 @@ def _run_isolated_forward(
     except Exception as error:
         return ForwardFailure("WorkerProtocolError", str(error))
     if not isinstance(outcome, (ForwardObservation, ForwardFailure)):
-        return ForwardFailure("WorkerProtocolError", "worker returned an invalid object")
+        if outcome.__class__.__name__ == "ForwardObservation":
+            outcome = ForwardObservation(
+                minima_positions_m=outcome.minima_positions_m,
+                hessian_validated_candidates=outcome.hessian_validated_candidates,
+                node_count=outcome.node_count,
+                triangle_count=outcome.triangle_count,
+                relative_free_residual=outcome.relative_free_residual,
+                valid_coarse_points=outcome.valid_coarse_points,
+                coarse_candidates=outcome.coarse_candidates,
+                refined_candidates=outcome.refined_candidates,
+                unique_candidates=outcome.unique_candidates,
+                runtime_seconds=outcome.runtime_seconds,
+            )
+        elif outcome.__class__.__name__ == "ForwardFailure":
+            outcome = ForwardFailure(
+                outcome.error_type,
+                outcome.error_message,
+                outcome.runtime_seconds,
+            )
+        else:
+            return ForwardFailure(
+                "WorkerProtocolError",
+                "worker returned an invalid object",
+            )
     return outcome
 
 
@@ -382,8 +503,10 @@ def _build_row_record(
     row_number: int,
     raw_displacements_m: NDArray[np.float64],
     relative_displacements_m: NDArray[np.float64],
+    solver_displacements_m: NDArray[np.float64],
     reference_absolute_m: NDArray[np.float64],
     reference_relative_m: NDArray[np.float64],
+    comparison_reference_m: NDArray[np.float64],
     outcome: ForwardObservation | ForwardFailure,
 ) -> ReferenceValidationRow:
     if isinstance(outcome, ForwardFailure):
@@ -391,8 +514,11 @@ def _build_row_record(
             row_number=row_number,
             raw_displacements_m=raw_displacements_m.copy(),
             relative_displacements_m=relative_displacements_m.copy(),
+            solver_displacements_m=solver_displacements_m.copy(),
             reference_minima_absolute_m=reference_absolute_m.copy(),
             reference_minima_relative_m=reference_relative_m.copy(),
+            comparison_reference_minima_m=comparison_reference_m.copy(),
+            runtime_seconds=outcome.runtime_seconds,
             status="forward-failed",
             observation=None,
             matches=(),
@@ -404,21 +530,27 @@ def _build_row_record(
             row_number=row_number,
             raw_displacements_m=raw_displacements_m.copy(),
             relative_displacements_m=relative_displacements_m.copy(),
+            solver_displacements_m=solver_displacements_m.copy(),
             reference_minima_absolute_m=reference_absolute_m.copy(),
             reference_minima_relative_m=reference_relative_m.copy(),
+            comparison_reference_minima_m=comparison_reference_m.copy(),
+            runtime_seconds=outcome.runtime_seconds,
             status="unexpected-minimum-count",
             observation=outcome,
             matches=(),
             error_type="UnexpectedMinimumCount",
             error_message=f"computed {outcome.minima_positions_m.shape[0]} minima; expected 3",
         )
-    matches = match_minima_by_distance(reference_relative_m, outcome.minima_positions_m)
+    matches = match_minima_by_distance(comparison_reference_m, outcome.minima_positions_m)
     return ReferenceValidationRow(
         row_number=row_number,
         raw_displacements_m=raw_displacements_m.copy(),
         relative_displacements_m=relative_displacements_m.copy(),
+        solver_displacements_m=solver_displacements_m.copy(),
         reference_minima_absolute_m=reference_absolute_m.copy(),
         reference_minima_relative_m=reference_relative_m.copy(),
+        comparison_reference_minima_m=comparison_reference_m.copy(),
+        runtime_seconds=outcome.runtime_seconds,
         status="ok",
         observation=outcome,
         matches=matches,
@@ -444,11 +576,25 @@ def _error_metrics(errors_m: NDArray[np.float64]) -> tuple[float, float, float, 
 
 
 def _row_fieldnames() -> list[str]:
-    fields = ["row_number", "status", "error_type", "error_message"]
+    fields = [
+        "variant",
+        "displacement_mode",
+        "electrode_permutation",
+        "polarity",
+        "mesh_size_m",
+        "search_half_width_m",
+        "row_number",
+        "status",
+        "runtime_seconds",
+        "error_type",
+        "error_message",
+    ]
     for electrode in range(1, 5):
         fields.extend([f"raw_d{electrode}_x_m", f"raw_d{electrode}_y_m"])
     for electrode in range(2, 5):
         fields.extend([f"relative_d{electrode}_x_m", f"relative_d{electrode}_y_m"])
+    for electrode in range(2, 5):
+        fields.extend([f"solver_d{electrode}_x_m", f"solver_d{electrode}_y_m"])
     fields.extend(
         [
             "computed_minimum_count",
@@ -476,14 +622,24 @@ def _row_csv_records(report: ReferenceValidationReport) -> list[dict[str, object
     records = []
     for row in report.rows:
         record: dict[str, object] = {
+            "variant": report.variant.name,
+            "displacement_mode": report.variant.displacement_mode,
+            "electrode_permutation": "-".join(
+                str(value) for value in report.variant.electrode_permutation
+            ),
+            "polarity": report.variant.polarity_name,
+            "mesh_size_m": report.model_config.mesh.characteristic_length_m,
+            "search_half_width_m": report.model_config.minima.search_half_extent_m,
             "row_number": row.row_number,
             "status": row.status,
+            "runtime_seconds": row.runtime_seconds,
             "error_type": row.error_type,
             "error_message": row.error_message,
             "exactly_three_physical_minima": row.exactly_three_physical_minima,
         }
         _add_pairs(record, "raw_d", row.raw_displacements_m, 1)
         _add_pairs(record, "relative_d", row.relative_displacements_m.reshape(3, 2), 2)
+        _add_pairs(record, "solver_d", row.solver_displacements_m.reshape(3, 2), 2)
         observation = row.observation
         record.update(
             {
@@ -508,6 +664,11 @@ def _row_csv_records(report: ReferenceValidationReport) -> list[dict[str, object
 
 def _minimum_fieldnames() -> list[str]:
     return [
+        "variant",
+        "displacement_mode",
+        "electrode_permutation",
+        "polarity",
+        "mesh_size_m",
         "row_number",
         "reference_index",
         "computed_index",
@@ -533,9 +694,21 @@ def _minimum_csv_records(report: ReferenceValidationReport) -> list[dict[str, ob
         electrode1 = row.raw_displacements_m[0]
         for match in row.matches:
             reference_absolute = row.reference_minima_absolute_m[match.reference_index - 1]
-            computed_absolute = match.computed_position_m + electrode1
+            if report.variant.displacement_mode == "electrode1-relative":
+                computed_relative = match.computed_position_m
+                computed_absolute = computed_relative + electrode1
+            else:
+                computed_absolute = match.computed_position_m
+                computed_relative = computed_absolute - electrode1
             records.append(
                 {
+                    "variant": report.variant.name,
+                    "displacement_mode": report.variant.displacement_mode,
+                    "electrode_permutation": "-".join(
+                        str(value) for value in report.variant.electrode_permutation
+                    ),
+                    "polarity": report.variant.polarity_name,
+                    "mesh_size_m": report.model_config.mesh.characteristic_length_m,
                     "row_number": row.row_number,
                     "reference_index": match.reference_index,
                     "computed_index": match.computed_index,
@@ -543,8 +716,8 @@ def _minimum_csv_records(report: ReferenceValidationReport) -> list[dict[str, ob
                     "reference_absolute_y_m": reference_absolute[1],
                     "reference_relative_x_m": match.reference_position_m[0],
                     "reference_relative_y_m": match.reference_position_m[1],
-                    "computed_relative_x_m": match.computed_position_m[0],
-                    "computed_relative_y_m": match.computed_position_m[1],
+                    "computed_relative_x_m": computed_relative[0],
+                    "computed_relative_y_m": computed_relative[1],
                     "computed_absolute_x_m": computed_absolute[0],
                     "computed_absolute_y_m": computed_absolute[1],
                     "delta_x_m": match.delta_m[0],
@@ -585,15 +758,33 @@ def _markdown_report(report: ReferenceValidationReport) -> str:
     config = report.model_config
     diagnostics = _scale_diagnostics(report)
     status_counts = Counter(row.status for row in report.rows)
+    permutation = " -> ".join(
+        f"FEM E{slot}=source E{source}"
+        for slot, source in enumerate(report.variant.electrode_permutation, start=1)
+    )
+    if report.variant.displacement_mode == "electrode1-relative":
+        convention_text = (
+            "The FEM fixes electrode 1. Each source row is translated by `-d1`: "
+            "solver inputs are the permuted `(di-d1)` coordinates and reference "
+            "minima are compared as `minimum_absolute-d1`."
+        )
+        frame_label = "electrode-1-relative"
+    else:
+        convention_text = (
+            "Raw absolute electrode displacements are applied: E1 is displaced "
+            "through a row-specific geometry and E2--E4 through the solver input. "
+            "Computed and reference minima are compared in the absolute trap frame."
+        )
+        frame_label = "absolute"
     lines = [
         "# FEM-to-reference validation report",
         "",
         "## Comparison convention",
         "",
-        "The FEM fixes electrode 1. Each source row is therefore translated by",
-        "`-d1`: solver inputs are `(d2-d1, d3-d1, d4-d1)` and reference minima",
-        "are compared as `minimum_absolute-d1`. The source ordering is retained",
-        "for identifiers, but pairing uses minimum-total-distance assignment.",
+        convention_text,
+        f"Electrode map: `{permutation}`. Polarity variant: "
+        f"`{report.variant.polarity_name}`. Pairing uses "
+        "minimum-total-distance assignment.",
         "",
         "All calculations use metres. Tables display errors in both micrometres",
         "and millimetres. Failed rows are retained and excluded from error metrics.",
@@ -610,6 +801,7 @@ def _markdown_report(report: ReferenceValidationReport) -> str:
         f"- Maximum error: `{_format_distance(summary.maximum_error_m)}`",
         f"- 95th-percentile error: `{_format_distance(summary.percentile_95_error_m)}`",
         f"- Row statuses: `{dict(sorted(status_counts.items()))}`",
+        f"- Wall runtime: `{report.runtime_seconds:.3f} s`",
         "",
         "## Scale and boundary diagnostics",
         "",
@@ -617,6 +809,8 @@ def _markdown_report(report: ReferenceValidationReport) -> str:
         f"- FEM electrode radius: `{config.geometry.electrode_radius_m * 1.0e3:.6g} mm`",
         f"- FEM outer-boundary radius: `{config.geometry.outer_radius_m * 1.0e3:.6g} mm`",
         f"- FEM minima-search half-extent: `{config.minima.search_half_extent_m * 1.0e3:.6g} mm`",
+        f"- FEM target mesh size: `{config.mesh.characteristic_length_m * 1.0e3:.6g} mm`",
+        f"- Electrode potentials E1--E4: `{config.geometry.resolved_electrode_potentials_v} V`",
         f"- Reference minima outside the search square: `{diagnostics['outside_search']}` of `{diagnostics['reference_count']}`",
         f"- Reference minima outside the FEM outer circle: `{diagnostics['outside_outer']}` of `{diagnostics['reference_count']}`",
         f"- Reference radial-distance median/range: `{diagnostics['reference_median_radius_m'] * 1.0e3:.6g} mm` / `{diagnostics['reference_min_radius_m'] * 1.0e3:.6g}` to `{diagnostics['reference_max_radius_m'] * 1.0e3:.6g} mm`",
@@ -645,7 +839,7 @@ def _markdown_report(report: ReferenceValidationReport) -> str:
             "",
             "## Per-minimum spatial assignment",
             "",
-            "| row | reference | computed | reference relative (mm) | computed relative (mm) | error (µm / mm) |",
+            f"| row | reference | computed | reference {frame_label} (mm) | computed {frame_label} (mm) | error (µm / mm) |",
             "|---:|---:|---:|:---|:---|---:|",
         ]
     )
@@ -662,25 +856,22 @@ def _markdown_report(report: ReferenceValidationReport) -> str:
             "",
             "## Diagnostic interpretation",
             "",
-            "- **Electrode numbering:** source numbering is assumed to match FEM",
-            "  numbering; the supplied data do not independently establish this map.",
-            "- **Coordinate origin / absolute versus electrode-1-relative:** the",
-            "  benchmark explicitly applies the required electrode-1 translation.",
-            "  Its magnitude is reported above, so remaining multi-millimetre scale",
-            "  disagreement cannot be attributed solely to this convention.",
-            "- **Polarity convention:** the current FEM drives four electrodes at",
-            "  equal phase, whereas the reference article describes an eight-rod",
-            "  alternating-polarity octupole. Equivalence is not established.",
-            "- **Geometry scale:** the FEM radius and nominal centres are explicitly",
-            "  provisional. Reference minima several millimetres from the origin are",
-            "  incompatible with treating the current demonstrator dimensions as",
-            "  validated physical geometry.",
+            "- **Electrode numbering:** the tested source-to-FEM permutation is",
+            "  stated above; the supplied data do not independently establish the map.",
+            "- **Coordinate origin:** the benchmark explicitly applies the selected",
+            "  absolute or electrode-1-relative convention rather than silently",
+            "  mixing frames.",
+            "- **Polarity convention:** the tested per-electrode potentials are",
+            "  reported above. The article's eight-rod octupole is not assumed to be",
+            "  equivalent to this four-electrode two-dimensional model.",
+            "- **Geometry scale:** all physical and numerical dimensions used by this",
+            "  run are reported above and must be judged against the measured errors.",
             "- **Outer boundary and search region:** reference points outside the",
             "  configured search square cannot be recovered by this solver run; points",
             "  outside the finite outer circle are outside the modeled vacuum domain.",
             "",
             "These results validate the current implementation against the supplied",
-            "data only at the stated conventions and provisional geometry. They do not",
+            "data only at the stated conventions and reported geometry. They do not",
             "authorize synthetic dataset generation unless the measured errors and",
             "failure modes are resolved with the actual electrode geometry, polarity,",
             "numbering, and boundary/search scales.",
@@ -691,7 +882,7 @@ def _markdown_report(report: ReferenceValidationReport) -> str:
 
 
 def _scale_diagnostics(report: ReferenceValidationReport) -> dict[str, float | int]:
-    reference = np.vstack([row.reference_minima_relative_m for row in report.rows])
+    reference = np.vstack([row.comparison_reference_minima_m for row in report.rows])
     reference_radii = np.linalg.norm(reference, axis=1)
     computed_arrays = [
         row.observation.minima_positions_m
@@ -752,11 +943,12 @@ def _write_row_plot(
     row: ReferenceValidationRow,
     config: ForwardModelConfig,
     path: Path,
+    displacement_mode: DisplacementMode,
 ) -> None:
     figure = Figure(figsize=(6.6, 6.0), layout="constrained")
     FigureCanvasAgg(figure)
     axis = figure.subplots()
-    reference_mm = row.reference_minima_relative_m * 1.0e3
+    reference_mm = row.comparison_reference_minima_m * 1.0e3
     axis.scatter(
         reference_mm[:, 0],
         reference_mm[:, 1],
@@ -813,12 +1005,25 @@ def _write_row_plot(
         )
     )
     axis.set_title(f"Reference row {row.row_number}: {row.status}")
-    axis.set_xlabel("x relative to electrode 1 (mm)")
-    axis.set_ylabel("y relative to electrode 1 (mm)")
-    axis.set_aspect("equal", adjustable="datalim")
+    frame = (
+        "absolute trap frame"
+        if displacement_mode == "absolute"
+        else "relative to electrode 1"
+    )
+    axis.set_xlabel(f"x, {frame} (mm)")
+    axis.set_ylabel(f"y, {frame} (mm)")
+    axis.set_aspect("equal", adjustable="box")
     axis.grid(True, alpha=0.25)
     axis.legend(loc="best", fontsize=8)
-    axis.margins(0.12)
+    plotted = [reference_mm]
+    if row.observation is not None and row.observation.minima_positions_m.size:
+        plotted.append(row.observation.minima_positions_m * 1.0e3)
+    display_half_width_mm = max(
+        search_extent_mm,
+        1.15 * max(float(np.max(np.abs(points))) for points in plotted),
+    )
+    axis.set_xlim(-display_half_width_mm, display_half_width_mm)
+    axis.set_ylim(-display_half_width_mm, display_half_width_mm)
     if row.error_message:
         axis.text(
             0.02,
@@ -847,9 +1052,85 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-directory",
         type=Path,
-        default=Path("validation_results") / "milestone_4",
+        default=Path("validation_results") / "milestone_5" / "single_variant",
+    )
+    parser.add_argument(
+        "--geometry",
+        choices=("real", "demonstrator"),
+        default="real",
+        help="Use the real 50 mm configuration (default) or old demonstrator.",
+    )
+    parser.add_argument("--mesh-size-mm", type=float)
+    parser.add_argument("--search-half-width-mm", type=float)
+    parser.add_argument(
+        "--displacement-mode",
+        choices=("electrode1-relative", "absolute"),
+        default="electrode1-relative",
+    )
+    parser.add_argument(
+        "--polarity",
+        choices=("all-positive", "alternating"),
+        default="all-positive",
+    )
+    parser.add_argument(
+        "--electrode-permutation",
+        default="1,2,3,4",
+        help="FEM-slot to source-electrode map; E1 must remain first.",
     )
     return parser
+
+
+def _parse_electrode_permutation(value: str) -> tuple[int, int, int, int]:
+    """Parse and validate a comma-separated FEM-to-source electrode map."""
+
+    try:
+        parsed = tuple(int(part.strip()) for part in value.split(","))
+    except ValueError as error:
+        raise ValueError("electrode permutation must contain integers") from error
+    if len(parsed) != 4:
+        raise ValueError("electrode permutation must contain four entries")
+    permutation = (parsed[0], parsed[1], parsed[2], parsed[3])
+    ReferenceValidationVariant(electrode_permutation=permutation)
+    return permutation
+
+
+def _validation_config_from_arguments(arguments: argparse.Namespace) -> ForwardModelConfig:
+    """Construct an explicit real-scale or regression demonstrator config."""
+
+    potentials = (
+        DIAGONAL_ALTERNATING_POTENTIALS_V
+        if arguments.polarity == "alternating"
+        else None
+    )
+    mesh_size_m = (
+        None if arguments.mesh_size_mm is None else arguments.mesh_size_mm * 1.0e-3
+    )
+    search_m = (
+        None
+        if arguments.search_half_width_mm is None
+        else arguments.search_half_width_mm * 1.0e-3
+    )
+    if arguments.geometry == "real":
+        options: dict[str, object] = {"electrode_potentials_v": potentials}
+        if mesh_size_m is not None:
+            options["mesh_size_m"] = mesh_size_m
+        if search_m is not None:
+            options["search_half_width_m"] = search_m
+        return real_scale_forward_config(**options)
+
+    config = demonstrator_config()
+    geometry = replace(config.geometry, electrode_potentials_v=potentials)
+    mesh = (
+        config.mesh
+        if mesh_size_m is None
+        else replace(config.mesh, characteristic_length_m=mesh_size_m)
+    )
+    minima = (
+        config.minima
+        if search_m is None
+        else replace(config.minima, search_half_extent_m=search_m)
+    )
+    return replace(config, geometry=geometry, mesh=mesh, minima=minima)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -864,7 +1145,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         random_count=arguments.random_count,
         random_seed=arguments.random_seed,
     )
-    report = run_reference_validation(dataset, demonstrator_config(), rows)
+    try:
+        permutation = _parse_electrode_permutation(
+            arguments.electrode_permutation
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    variant = ReferenceValidationVariant(
+        name=(
+            f"{arguments.displacement_mode}_{arguments.polarity}_"
+            + "".join(str(value) for value in permutation)
+        ),
+        displacement_mode=arguments.displacement_mode,
+        electrode_permutation=permutation,
+        polarity_name=arguments.polarity,
+    )
+    config = _validation_config_from_arguments(arguments)
+    report = run_reference_validation(
+        dataset,
+        config,
+        rows,
+        variant=variant,
+    )
     paths = write_reference_validation_outputs(report, arguments.output_directory)
     summary = report.summary()
     print(f"rows: {rows}")
@@ -877,6 +1179,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"median error: {_format_distance(summary.median_error_m)}")
     print(f"maximum error: {_format_distance(summary.maximum_error_m)}")
     print(f"95th-percentile error: {_format_distance(summary.percentile_95_error_m)}")
+    print(f"runtime: {report.runtime_seconds:.3f} s")
     print(f"row CSV: {paths.rows_csv}")
     print(f"minimum CSV: {paths.minima_csv}")
     print(f"report: {paths.markdown_report}")

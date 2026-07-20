@@ -13,6 +13,7 @@ from rf_trap_forward.dataset import ReferenceDataset
 from rf_trap_forward.demo import demonstrator_config
 from rf_trap_forward.reference_validation import (
     ForwardObservation,
+    ReferenceValidationVariant,
     match_minima_by_distance,
     run_reference_validation,
     select_reference_rows,
@@ -123,6 +124,38 @@ def test_mocked_forward_run_uses_electrode1_relative_convention() -> None:
     assert row.exactly_three_physical_minima
     assert [match.computed_index for match in row.matches] == [2, 3, 1]
     np.testing.assert_allclose(row.error_distances_m(), np.sqrt(5.0) * 1.0e-6)
+
+
+def test_absolute_mode_applies_all_four_raw_displacements() -> None:
+    """Absolute diagnostics must move E1 and pass raw E2--E4 coordinates."""
+
+    dataset = _one_row_dataset()
+    captured: list[tuple[np.ndarray, object]] = []
+
+    def runner(displacements_m: object, config: object) -> _MockForwardResult:
+        captured.append((np.asarray(displacements_m, dtype=float), config))
+        return _MockForwardResult(dataset.raw_minima_absolute_m[0])
+
+    base = demonstrator_config()
+    report = run_reference_validation(
+        dataset,
+        base,
+        (1,),
+        runner=runner,
+        variant=ReferenceValidationVariant(
+            name="absolute-test",
+            displacement_mode="absolute",
+        ),
+    )
+    expected_solver = dataset.raw_displacements_m[0, 1:].reshape(6)
+    np.testing.assert_allclose(captured[0][0], expected_solver)
+    row_config = captured[0][1]
+    np.testing.assert_allclose(
+        row_config.geometry.nominal_centers_m[0],
+        np.asarray(base.geometry.nominal_centers_m[0])
+        + dataset.raw_displacements_m[0, 0],
+    )
+    np.testing.assert_allclose(report.rows[0].error_distances_m(), 0.0)
 
 
 def test_summary_metrics_include_all_matched_minima() -> None:

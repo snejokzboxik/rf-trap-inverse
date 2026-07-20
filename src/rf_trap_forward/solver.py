@@ -39,7 +39,13 @@ def solve_potential(
     stiffness = csr_matrix(asm(laplace, basis))
     right_hand_side = np.zeros(basis.N, dtype=float)
     prescribed = np.zeros(basis.N, dtype=float)
-    prescribed[trap_mesh.electrode_boundary_nodes] = geometry.config.electrode_potential_v
+    electrode_potentials = geometry.config.resolved_electrode_potentials_v
+    for nodes, potential_v in zip(
+        trap_mesh.electrode_boundary_nodes_by_electrode,
+        electrode_potentials,
+        strict=True,
+    ):
+        prescribed[nodes] = potential_v
     prescribed[trap_mesh.outer_boundary_nodes] = geometry.config.outer_potential_v
     dirichlet_nodes = np.union1d(
         trap_mesh.electrode_boundary_nodes,
@@ -62,12 +68,12 @@ def solve_potential(
     forcing = stiffness[free_nodes][:, dirichlet_nodes] @ prescribed[dirichlet_nodes]
     denominator = max(float(np.linalg.norm(forcing)), np.finfo(float).tiny)
     relative_residual = float(np.linalg.norm(residual[free_nodes]) / denominator)
-    electrode_error = float(
-        np.max(
-            np.abs(
-                potential[trap_mesh.electrode_boundary_nodes]
-                - geometry.config.electrode_potential_v
-            )
+    electrode_error = max(
+        float(np.max(np.abs(potential[nodes] - potential_v)))
+        for nodes, potential_v in zip(
+            trap_mesh.electrode_boundary_nodes_by_electrode,
+            electrode_potentials,
+            strict=True,
         )
     )
     outer_error = float(
@@ -113,11 +119,14 @@ def _validate_solution(
         )
     if max(electrode_error_v, outer_error_v) > config.maximum_principle_tolerance_v:
         raise RuntimeError("Dirichlet boundary values were not imposed accurately")
-    lower = min(geometry.config.electrode_potential_v, geometry.config.outer_potential_v)
-    upper = max(geometry.config.electrode_potential_v, geometry.config.outer_potential_v)
+    boundary_values = (
+        *geometry.config.resolved_electrode_potentials_v,
+        geometry.config.outer_potential_v,
+    )
+    lower = min(boundary_values)
+    upper = max(boundary_values)
     tolerance = config.maximum_principle_tolerance_v
     if float(np.min(potential_v)) < lower - tolerance:
         raise RuntimeError("FEM potential violates the discrete minimum principle")
     if float(np.max(potential_v)) > upper + tolerance:
         raise RuntimeError("FEM potential violates the discrete maximum principle")
-
