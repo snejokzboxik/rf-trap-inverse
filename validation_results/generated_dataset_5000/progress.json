@@ -1,0 +1,15 @@
+{
+  "ambiguous_branch_count": 0,
+  "clean_count": 5000,
+  "completed_attempts": 5000,
+  "elapsed_seconds": 5844.203386100009,
+  "last_sample_id": 5000,
+  "rejected_count": 0,
+  "requested_n": 5000,
+  "seed": 20260721,
+  "solver_failure_count": 0,
+  "status_counts": {
+    "clean": 5000
+  },
+  "updated_at": "2026-07-21T18:54:09.866425+00:00"
+}
