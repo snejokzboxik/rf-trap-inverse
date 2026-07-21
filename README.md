@@ -85,6 +85,7 @@ python -m venv .venv
 .venv\Scripts\rf-trap-absolute-displacement-check
 .venv\Scripts\rf-trap-wolfram-convention-check
 .venv\Scripts\rf-trap-generate-dataset --n 100 --seed 123
+.venv\Scripts\rf-trap-generate-dataset --n 10000 --seed 123 --allow-large-n
 .venv\Scripts\rf-trap-audit-dataset
 .venv\Scripts\rf-trap-train-inverse
 .venv\Scripts\rf-trap-closed-loop-inverse --n 20
@@ -223,8 +224,10 @@ polar-angle sorted in absolute geometric-centre coordinates. A clean sample
 must have exactly three robust-accepted candidates and at least 0.15 mm between
 every pair of minima. Solver failures, invalid geometry, other topology, and
 closer `ambiguous_branch` cases are preserved in `synthetic_rejected.csv` and
-never enter `synthetic_clean.csv`. The generator is capped at 1000 requested
-samples until a larger run is explicitly authorized.
+never enter `synthetic_clean.csv`. Requests above 1000 samples require the
+explicit `--allow-large-n` acknowledgement because practical robust-FEM
+generation may take many hours; the flag does not change any physics, mesh, or
+clean/rejected criteria.
 
 The focused Wolfram-convention validation reduced the nine non-outlier rows to
 0.04722 mm mean error and 0.12833 mm maximum error. `Data.txt` row 5 is retained

@@ -78,7 +78,7 @@ REJECTED_CSV_COLUMNS = CLEAN_CSV_COLUMNS + (
 
 @dataclass(frozen=True)
 class SyntheticDatasetConfig:
-    """Sampling, mesh, ambiguity, and bounded-concurrency controls."""
+    """Sampling, mesh, ambiguity, concurrency, and large-run controls."""
 
     n: int = 100
     seed: int = 123
@@ -86,14 +86,17 @@ class SyntheticDatasetConfig:
     mesh_mode: MeshMode = "practical"
     batch_size: int = 3
     ambiguous_minimum_distance_m: float = DEFAULT_AMBIGUOUS_MINIMUM_DISTANCE_M
+    allow_large_n: bool = False
 
     def __post_init__(self) -> None:
         """Validate generator controls without changing their stated units."""
 
         if self.n <= 0:
             raise ValueError("n must be positive")
-        if self.n > 1000:
-            raise ValueError("n must not exceed 1000 without an explicit code change")
+        if self.n > 1000 and not self.allow_large_n:
+            raise ValueError(
+                "n > 1000 requires --allow-large-n because generation may take many hours."
+            )
         if self.seed < 0:
             raise ValueError("seed must be non-negative")
         if not np.isfinite(self.max_displacement_m) or self.max_displacement_m <= 0.0:
@@ -256,18 +259,24 @@ def sample_wolfram_displacements_m(
     seed: int,
     max_displacement_m: float,
 ) -> NDArray[np.float64]:
-    """Sample deterministic uniform ``(n, 4, 2)`` Wolfram-order inputs."""
+    """Sample deterministic uniform ``(n, 4, 2)`` Wolfram-order inputs.
 
-    config = SyntheticDatasetConfig(
-        n=n,
-        seed=seed,
-        max_displacement_m=max_displacement_m,
-    )
-    generator = np.random.default_rng(config.seed)
+    The caller owns the large-run policy.  This helper deliberately does not
+    recreate ``SyntheticDatasetConfig``, which would otherwise lose its
+    validated ``allow_large_n`` acknowledgement.
+    """
+
+    if n <= 0:
+        raise ValueError("n must be positive")
+    if seed < 0:
+        raise ValueError("seed must be non-negative")
+    if not np.isfinite(max_displacement_m) or max_displacement_m <= 0.0:
+        raise ValueError("max_displacement_m must be finite and positive")
+    generator = np.random.default_rng(seed)
     return generator.uniform(
-        -config.max_displacement_m,
-        config.max_displacement_m,
-        size=(config.n, 4, 2),
+        -max_displacement_m,
+        max_displacement_m,
+        size=(n, 4, 2),
     )
 
 
@@ -700,7 +709,7 @@ Counts: clean `{summary['clean_samples']}`, rejected
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the bounded synthetic-dataset command-line interface."""
+    """Build the synthetic-dataset command-line interface with a large-run gate."""
 
     parser = argparse.ArgumentParser(
         prog="rf-trap-generate-dataset",
@@ -715,6 +724,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-displacement-um", type=float, default=500.0)
     parser.add_argument("--mesh-mode", choices=("practical",), default="practical")
+    parser.add_argument(
+        "--allow-large-n",
+        action="store_true",
+        help="acknowledge that n > 1000 may take many hours",
+    )
     parser.add_argument(
         "--batch-size",
         type=int,
@@ -734,6 +748,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_displacement_m=arguments.max_displacement_um * 1.0e-6,
         mesh_mode=arguments.mesh_mode,
         batch_size=arguments.batch_size,
+        allow_large_n=arguments.allow_large_n,
     )
     update_stride = max(1, config.n // 20)
 

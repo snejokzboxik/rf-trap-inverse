@@ -6,7 +6,9 @@ import csv
 from pathlib import Path
 
 import numpy as np
+import pytest
 
+import rf_trap_forward.synthetic_dataset as synthetic_dataset
 from rf_trap_forward.absolute_validation import (
     wolfram_to_fem_absolute_displacements_m,
 )
@@ -15,6 +17,7 @@ from rf_trap_forward.synthetic_dataset import (
     REJECTED_CSV_COLUMNS,
     SyntheticDatasetConfig,
     SyntheticSolveResult,
+    build_parser,
     generate_synthetic_dataset,
     sample_wolfram_displacements_m,
     write_synthetic_dataset,
@@ -76,6 +79,50 @@ def test_sampling_is_deterministic_for_fixed_seed() -> None:
     np.testing.assert_array_equal(first, second)
     assert not np.array_equal(first, different)
     assert np.max(np.abs(first)) <= 500.0e-6
+
+
+def test_large_request_safety_gate_needs_no_fem_solve() -> None:
+    """Only an explicit CLI/config acknowledgement permits more than 1000 rows."""
+
+    assert SyntheticDatasetConfig(n=1000).n == 1000
+    with pytest.raises(
+        ValueError,
+        match="n > 1000 requires --allow-large-n because generation may take many hours",
+    ):
+        SyntheticDatasetConfig(n=10_000)
+    arguments = build_parser().parse_args(("--n", "10000", "--allow-large-n"))
+    assert arguments.allow_large_n is True
+    assert SyntheticDatasetConfig(
+        n=arguments.n,
+        allow_large_n=arguments.allow_large_n,
+    ).n == 10_000
+
+
+def test_validated_large_request_reaches_sampling_without_fem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The acknowledged 10,000-row path must retain its large-run approval."""
+
+    class SamplingReached(Exception):
+        """Stop immediately after verifying the generator reaches sampling."""
+
+    def stop_after_sampling(
+        n: int,
+        seed: int,
+        max_displacement_m: float,
+    ) -> np.ndarray:
+        assert (n, seed, max_displacement_m) == (10_000, 7, 500.0e-6)
+        raise SamplingReached
+
+    monkeypatch.setattr(
+        synthetic_dataset,
+        "sample_wolfram_displacements_m",
+        stop_after_sampling,
+    )
+    with pytest.raises(SamplingReached):
+        synthetic_dataset.generate_synthetic_dataset(
+            SyntheticDatasetConfig(n=10_000, seed=7, allow_large_n=True)
+        )
 
 
 def test_csv_columns_are_stable_for_clean_and_rejected_files(
