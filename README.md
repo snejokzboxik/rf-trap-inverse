@@ -1,4 +1,4 @@
-# RF trap forward model, reference benchmarking, and bounded dataset generation
+# RF trap forward model, reference benchmarking, and baseline inverse modelling
 
 This repository implements one reproducible 2D forward-model pipeline for four
 infinitely long, equal-phase cylindrical electrodes.  Given the six Cartesian
@@ -86,6 +86,7 @@ python -m venv .venv
 .venv\Scripts\rf-trap-wolfram-convention-check
 .venv\Scripts\rf-trap-generate-dataset --n 100 --seed 123
 .venv\Scripts\rf-trap-audit-dataset
+.venv\Scripts\rf-trap-train-inverse
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -225,7 +226,6 @@ samples until a larger run is explicitly authorized.
 The focused Wolfram-convention validation reduced the nine non-outlier rows to
 0.04722 mm mean error and 0.12833 mm maximum error. `Data.txt` row 5 is retained
 as a documented branch/topology ambiguity and is not used as a training row.
-No ML or inverse model is implemented here.
 
 `rf-trap-audit-dataset` performs a read-only QA pass over the generated clean
 and rejected CSV files and their JSON summary. It checks schemas, row counts,
@@ -234,3 +234,13 @@ the 8 mm search square, displaced-domain membership, pairwise separation, and
 polar-angle ordering. It writes `qa_report.md`, `summary_stats.csv`, and four
 distribution plots under `validation_results/generated_dataset_qa` without
 running the FEM or generating additional samples.
+
+`rf-trap-train-inverse` reads only the QA-passed `synthetic_clean.csv` and fits
+Ridge, random-forest, and MLP baselines from six polar-angle-sorted minimum
+coordinates to eight raw displacement coordinates in Wolfram electrode order.
+It uses a deterministic 80/20 split (`random_state=42`), reports errors in
+micrometres, and saves held-out predictions, per-coordinate and per-electrode
+metrics, plots, and fitted joblib files under
+`validation_results/inverse_model_baseline`. The six-observation/eight-target
+map is generally underdetermined; baseline accuracy must not be interpreted as
+proof of a unique physical inverse.
