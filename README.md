@@ -85,6 +85,7 @@ python -m venv .venv
 .venv\Scripts\rf-trap-absolute-displacement-check
 .venv\Scripts\rf-trap-wolfram-convention-check
 .venv\Scripts\rf-trap-generate-dataset --n 100 --seed 123
+.venv\Scripts\rf-trap-audit-dataset
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -225,3 +226,11 @@ The focused Wolfram-convention validation reduced the nine non-outlier rows to
 0.04722 mm mean error and 0.12833 mm maximum error. `Data.txt` row 5 is retained
 as a documented branch/topology ambiguity and is not used as a training row.
 No ML or inverse model is implemented here.
+
+`rf-trap-audit-dataset` performs a read-only QA pass over the generated clean
+and rejected CSV files and their JSON summary. It checks schemas, row counts,
+numeric finiteness, duplicates, displacement bounds, the Wolfram transform,
+the 8 mm search square, displaced-domain membership, pairwise separation, and
+polar-angle ordering. It writes `qa_report.md`, `summary_stats.csv`, and four
+distribution plots under `validation_results/generated_dataset_qa` without
+running the FEM or generating additional samples.
