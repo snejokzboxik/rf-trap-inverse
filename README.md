@@ -88,6 +88,7 @@ python -m venv .venv
 .venv\Scripts\rf-trap-audit-dataset
 .venv\Scripts\rf-trap-train-inverse
 .venv\Scripts\rf-trap-closed-loop-inverse --n 20
+.venv\Scripts\rf-trap-train-inverse-v2
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -254,3 +255,12 @@ solve. Recomputed minima are Hungarian-matched to the original inputs. No
 prediction clipping, model fitting, new data generation, calibration, or mesh
 sweep is performed. Outputs are written under
 `validation_results/inverse_closed_loop`.
+
+`rf-trap-train-inverse-v2` compares a larger early-stopped MLP, extra trees,
+multi-output histogram gradient boosting, and distance-weighted nearest
+neighbours on the same six-input/eight-Wolfram-target inverse problem. It keeps
+the original 80/20 seed-42 split, adds five deterministic repeated splits, and
+reports raw predictions alongside coordinate-wise clipping to the known
+±500 um training bounds. It does not run FEM, create data, or alter the first
+baseline. Results and the winning joblib model are written under
+`validation_results/inverse_model_v2`.
