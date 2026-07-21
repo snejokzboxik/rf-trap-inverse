@@ -18,8 +18,9 @@ class GeometryConfig:
     """Physical geometry and Dirichlet data in SI units.
 
     The outer boundary is a circle centred at the origin.  The four nominal
-    centres are ordered by electrode number; electrode 1 defines the reference
-    frame and is therefore never displaced by the six-component model input.
+    centres are ordered by electrode number. The legacy six-component forward
+    input fixes electrode 1; Data.txt validation uses a separate absolute
+    eight-component path that moves all four electrodes.
     """
 
     electrode_radius_m: float
@@ -65,6 +66,45 @@ class GeometryConfig:
 
 
 @dataclass(frozen=True)
+class MeshSizeFieldConfig:
+    """Local Gmsh size-field controls in SI units.
+
+    The central field is constant inside ``central_region_radius_m`` and blends
+    to the coarse outer size over ``central_transition_width_m``. Electrode
+    curves use their own threshold field and blend over
+    ``electrode_transition_width_m``.
+    """
+
+    outer_mesh_size_m: float
+    electrode_boundary_mesh_size_m: float
+    central_region_radius_m: float
+    central_mesh_size_m: float
+    central_transition_width_m: float = 1.0e-3
+    electrode_transition_width_m: float = 2.0e-3
+
+    def __post_init__(self) -> None:
+        """Validate local mesh sizes, radii, and transition widths."""
+
+        values = np.asarray(
+            (
+                self.outer_mesh_size_m,
+                self.electrode_boundary_mesh_size_m,
+                self.central_region_radius_m,
+                self.central_mesh_size_m,
+                self.central_transition_width_m,
+                self.electrode_transition_width_m,
+            ),
+            dtype=float,
+        )
+        if not np.all(np.isfinite(values)) or np.any(values <= 0.0):
+            raise ValueError("mesh-size-field controls must be finite and positive")
+        if self.central_mesh_size_m > self.outer_mesh_size_m:
+            raise ValueError("central mesh size must not exceed the outer mesh size")
+        if self.electrode_boundary_mesh_size_m > self.outer_mesh_size_m:
+            raise ValueError("electrode-boundary mesh size must not exceed the outer size")
+
+
+@dataclass(frozen=True)
 class MeshConfig:
     """Deterministic first-order triangular mesh settings in SI units."""
 
@@ -74,6 +114,7 @@ class MeshConfig:
     random_seed: int = 1
     random_factor: float = 0.0
     reproducible: bool = True
+    size_field: MeshSizeFieldConfig | None = None
 
     def __post_init__(self) -> None:
         """Validate the mesh controls after construction."""
@@ -88,6 +129,15 @@ class MeshConfig:
             raise ValueError("random_seed must be positive for reproducible Gmsh runs")
         if not np.isfinite(self.random_factor) or self.random_factor < 0.0:
             raise ValueError("random_factor must be finite and non-negative")
+        if self.size_field is not None and not np.isclose(
+            self.characteristic_length_m,
+            self.size_field.outer_mesh_size_m,
+            rtol=0.0,
+            atol=np.finfo(float).eps * max(self.characteristic_length_m, 1.0),
+        ):
+            raise ValueError(
+                "characteristic_length_m must equal size_field.outer_mesh_size_m"
+            )
 
 
 @dataclass(frozen=True)

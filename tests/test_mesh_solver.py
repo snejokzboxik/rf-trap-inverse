@@ -9,7 +9,12 @@ import numpy as np
 from rf_trap_forward import ForwardModelConfig
 from rf_trap_forward.geometry import TrapGeometry
 from rf_trap_forward.geometry import build_geometry
-from rf_trap_forward.mesh import TrapMesh, generate_mesh
+from rf_trap_forward.mesh import (
+    TrapMesh,
+    estimate_central_triangle_count,
+    generate_mesh,
+)
+from rf_trap_forward.real_scale import locally_refined_real_scale_forward_config
 from rf_trap_forward.solver import solve_potential
 
 
@@ -97,3 +102,45 @@ def test_solver_supports_explicit_per_electrode_dirichlet_values(
         np.testing.assert_allclose(solution.potential_v[nodes], expected, atol=0.0)
     assert np.min(solution.potential_v) >= -1.0
     assert np.max(solution.potential_v) <= 1.0
+
+
+def test_central_triangle_estimate_is_monotone_and_validated() -> None:
+    """The preflight estimate must grow quadratically as central h shrinks."""
+
+    coarse = estimate_central_triangle_count(8.0e-3, 0.50e-3)
+    fine = estimate_central_triangle_count(8.0e-3, 0.25e-3)
+    assert fine == 4 * coarse or abs(fine - 4 * coarse) <= 3
+    with np.testing.assert_raises(ValueError):
+        estimate_central_triangle_count(8.0e-3, 0.0)
+
+
+def test_local_size_field_refines_the_central_region() -> None:
+    """An actual Gmsh mesh must be finer centrally while retaining all markers."""
+
+    config = locally_refined_real_scale_forward_config(
+        central_mesh_size_m=0.50e-3,
+    )
+    geometry = build_geometry(config.geometry, np.zeros(6))
+    mesh = generate_mesh(geometry, config.mesh)
+    points = mesh.mesh.p.T
+    triangles = mesh.mesh.t.T
+    edge_pairs = np.vstack(
+        (triangles[:, (0, 1)], triangles[:, (1, 2)], triangles[:, (2, 0)])
+    )
+    edges = np.unique(np.sort(edge_pairs, axis=1), axis=0)
+    edge_vectors = points[edges[:, 1]] - points[edges[:, 0]]
+    lengths = np.linalg.norm(edge_vectors, axis=1)
+    midpoint_radii = np.linalg.norm(
+        0.5 * (points[edges[:, 1]] + points[edges[:, 0]]),
+        axis=1,
+    )
+    central_lengths = lengths[midpoint_radii <= 6.0e-3]
+    outer_lengths = lengths[midpoint_radii >= 35.0e-3]
+    assert central_lengths.size > 100
+    assert outer_lengths.size > 100
+    assert np.median(central_lengths) < 0.40 * np.median(outer_lengths)
+    classified = np.union1d(mesh.outer_boundary_nodes, mesh.electrode_boundary_nodes)
+    np.testing.assert_array_equal(
+        np.sort(classified),
+        np.sort(mesh.mesh.boundary_nodes()),
+    )

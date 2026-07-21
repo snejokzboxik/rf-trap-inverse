@@ -50,6 +50,25 @@ class PerforatedDiskMesh:
     hole_boundary_nodes: tuple[NDArray[np.int64], ...]
 
 
+def estimate_central_triangle_count(
+    central_region_radius_m: float,
+    central_mesh_size_m: float,
+) -> int:
+    """Estimate equilateral-triangle count inside a circular refined region.
+
+    This is a preflight order-of-magnitude estimate, not an exact Gmsh count.
+    It divides the disk area by ``sqrt(3) / 4 * h^2`` and deliberately excludes
+    transition, electrode, and outer-domain elements.
+    """
+
+    values = np.asarray((central_region_radius_m, central_mesh_size_m), dtype=float)
+    if not np.all(np.isfinite(values)) or np.any(values <= 0.0):
+        raise ValueError("central radius and mesh size must be finite and positive")
+    disk_area = np.pi * central_region_radius_m**2
+    nominal_triangle_area = np.sqrt(3.0) * central_mesh_size_m**2 / 4.0
+    return int(np.ceil(disk_area / nominal_triangle_area))
+
+
 def generate_mesh(geometry: TrapGeometry, config: MeshConfig) -> TrapMesh:
     """Generate a deterministic linear triangle mesh of the perforated disk.
 
@@ -132,8 +151,16 @@ def generate_perforated_disk_mesh(
         gmsh.option.setNumber("Mesh.Algorithm", config.gmsh_algorithm)
         gmsh.option.setNumber("Mesh.ElementOrder", 1)
         gmsh.option.setNumber("Mesh.Reproducible", float(config.reproducible))
-        gmsh.option.setNumber("Mesh.MeshSizeMin", 0.5 * config.characteristic_length_m)
-        gmsh.option.setNumber("Mesh.MeshSizeMax", config.characteristic_length_m)
+        minimum_size = config.characteristic_length_m
+        maximum_size = config.characteristic_length_m
+        if config.size_field is not None:
+            minimum_size = min(
+                config.size_field.central_mesh_size_m,
+                config.size_field.electrode_boundary_mesh_size_m,
+            )
+            maximum_size = config.size_field.outer_mesh_size_m
+        gmsh.option.setNumber("Mesh.MeshSizeMin", 0.5 * minimum_size)
+        gmsh.option.setNumber("Mesh.MeshSizeMax", maximum_size)
         gmsh.option.setNumber("Mesh.RandomFactor", config.random_factor)
         gmsh.option.setNumber("Mesh.RandomSeed", config.random_seed)
         gmsh.model.add(model_name)
@@ -168,6 +195,14 @@ def generate_perforated_disk_mesh(
         if len(surface_tags) != 1:
             raise RuntimeError("Gmsh did not produce one connected vacuum surface")
 
+        if config.size_field is not None:
+            _configure_mesh_size_fields(
+                surface_tags,
+                centers,
+                radii,
+                config,
+            )
+
         gmsh.model.mesh.generate(2)
         node_tags_raw, coordinates_raw, _ = gmsh.model.mesh.getNodes()
         triangle_type = gmsh.model.mesh.getElementType("triangle", 1)
@@ -200,6 +235,101 @@ def generate_perforated_disk_mesh(
         outer_boundary_nodes=outer_nodes,
         hole_boundary_nodes=hole_nodes,
     )
+
+
+def _configure_mesh_size_fields(
+    surface_tags: list[int],
+    hole_centers_m: NDArray[np.float64],
+    hole_radii_m: NDArray[np.float64],
+    config: MeshConfig,
+) -> None:
+    controls = config.size_field
+    if controls is None:
+        return
+    boundary_curves = gmsh.model.getBoundary(
+        [(2, tag) for tag in surface_tags],
+        combined=True,
+        oriented=False,
+        recursive=False,
+    )
+    electrode_curves = _electrode_curve_tags(
+        [tag for dimension, tag in boundary_curves if dimension == 1],
+        hole_centers_m,
+        hole_radii_m,
+    )
+    if not electrode_curves:
+        raise RuntimeError("failed to identify electrode curves for local refinement")
+
+    gmsh.option.setNumber("Mesh.MeshSizeExtendFromBoundary", 0)
+    gmsh.option.setNumber("Mesh.MeshSizeFromPoints", 0)
+    gmsh.option.setNumber("Mesh.MeshSizeFromCurvature", 0)
+
+    central = gmsh.model.mesh.field.add("Ball")
+    gmsh.model.mesh.field.setNumber(central, "XCenter", 0.0)
+    gmsh.model.mesh.field.setNumber(central, "YCenter", 0.0)
+    gmsh.model.mesh.field.setNumber(central, "ZCenter", 0.0)
+    gmsh.model.mesh.field.setNumber(central, "Radius", controls.central_region_radius_m)
+    gmsh.model.mesh.field.setNumber(
+        central,
+        "Thickness",
+        controls.central_transition_width_m,
+    )
+    gmsh.model.mesh.field.setNumber(central, "VIn", controls.central_mesh_size_m)
+    gmsh.model.mesh.field.setNumber(central, "VOut", controls.outer_mesh_size_m)
+
+    distance = gmsh.model.mesh.field.add("Distance")
+    gmsh.model.mesh.field.setNumbers(distance, "CurvesList", electrode_curves)
+    gmsh.model.mesh.field.setNumber(distance, "Sampling", 100)
+    electrode = gmsh.model.mesh.field.add("Threshold")
+    gmsh.model.mesh.field.setNumber(electrode, "InField", distance)
+    gmsh.model.mesh.field.setNumber(
+        electrode,
+        "SizeMin",
+        controls.electrode_boundary_mesh_size_m,
+    )
+    gmsh.model.mesh.field.setNumber(electrode, "SizeMax", controls.outer_mesh_size_m)
+    gmsh.model.mesh.field.setNumber(electrode, "DistMin", 0.0)
+    gmsh.model.mesh.field.setNumber(
+        electrode,
+        "DistMax",
+        controls.electrode_transition_width_m,
+    )
+
+    combined = gmsh.model.mesh.field.add("Min")
+    gmsh.model.mesh.field.setNumbers(combined, "FieldsList", [central, electrode])
+    gmsh.model.mesh.field.setAsBackgroundMesh(combined)
+
+
+def _electrode_curve_tags(
+    curve_tags: list[int],
+    centers_m: NDArray[np.float64],
+    radii_m: NDArray[np.float64],
+) -> list[int]:
+    tags = []
+    # OpenCASCADE expands curve bounding boxes by its modelling tolerance.
+    # One micrometre is still four orders of magnitude smaller than the real
+    # electrode radius and reliably distinguishes every trap boundary.
+    tolerance = 1.0e-6
+    for tag in curve_tags:
+        minimum_x, minimum_y, _, maximum_x, maximum_y, _ = gmsh.model.getBoundingBox(
+            1,
+            tag,
+        )
+        center = np.asarray(
+            ((minimum_x + maximum_x) / 2.0, (minimum_y + maximum_y) / 2.0)
+        )
+        radius = 0.25 * ((maximum_x - minimum_x) + (maximum_y - minimum_y))
+        if any(
+            np.linalg.norm(center - expected_center) <= tolerance
+            and abs(radius - expected_radius) <= tolerance
+            for expected_center, expected_radius in zip(
+                centers_m,
+                radii_m,
+                strict=True,
+            )
+        ):
+            tags.append(tag)
+    return tags
 
 
 def _index_gmsh_mesh(

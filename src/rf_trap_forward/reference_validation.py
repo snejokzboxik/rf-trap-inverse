@@ -89,12 +89,12 @@ class ReferenceValidationVariant:
     """Explicit displacement, numbering, and polarity convention for one run.
 
     ``electrode_permutation`` maps FEM slots E1--E4 to one-based source
-    electrode numbers. E1 must remain fixed; E2--E4 may be permuted for
-    controlled numbering diagnostics.
+    electrode numbers. E1 remains first in the numbering map, but its absolute
+    Data.txt displacement is applied like those of E2--E4.
     """
 
-    name: str = "relative_all_positive_identity"
-    displacement_mode: DisplacementMode = "electrode1-relative"
+    name: str = "absolute_all_positive_identity"
+    displacement_mode: DisplacementMode = "absolute"
     electrode_permutation: tuple[int, int, int, int] = (1, 2, 3, 4)
     polarity_name: str = "all-positive"
 
@@ -387,9 +387,8 @@ def prepare_reference_row_inputs(
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], ForwardModelConfig]:
     """Map a source row into one controlled solver/comparison convention.
 
-    The returned tuple contains the six solver inputs, reference minima in the
-    convention's native comparison frame, and the possibly row-specific model
-    configuration used to apply an absolute displacement of electrode 1.
+    Absolute mode returns the four raw displacement pairs in FEM electrode
+    order. Relative mode retains the legacy six-component E1-fixed input.
     """
 
     source_indices = np.asarray(variant.electrode_permutation, dtype=int) - 1
@@ -399,15 +398,8 @@ def prepare_reference_row_inputs(
         comparison_reference = reference_absolute_m - ordered[0]
         return solver_displacements, comparison_reference, config
 
-    nominal_centers = np.asarray(config.geometry.nominal_centers_m, dtype=float).copy()
-    nominal_centers[0] += ordered[0]
-    row_geometry = replace(
-        config.geometry,
-        nominal_centers_m=tuple(map(tuple, nominal_centers)),
-    )
-    solver_displacements = ordered[1:].reshape(6)
     comparison_reference = reference_absolute_m.copy()
-    return solver_displacements, comparison_reference, replace(config, geometry=row_geometry)
+    return ordered.copy(), comparison_reference, config
 
 
 def write_reference_validation_outputs(
@@ -602,7 +594,7 @@ def _row_fieldnames() -> list[str]:
         fields.extend([f"raw_d{electrode}_x_m", f"raw_d{electrode}_y_m"])
     for electrode in range(2, 5):
         fields.extend([f"relative_d{electrode}_x_m", f"relative_d{electrode}_y_m"])
-    for electrode in range(2, 5):
+    for electrode in range(1, 5):
         fields.extend([f"solver_d{electrode}_x_m", f"solver_d{electrode}_y_m"])
     fields.extend(
         [
@@ -648,7 +640,10 @@ def _row_csv_records(report: ReferenceValidationReport) -> list[dict[str, object
         }
         _add_pairs(record, "raw_d", row.raw_displacements_m, 1)
         _add_pairs(record, "relative_d", row.relative_displacements_m.reshape(3, 2), 2)
-        _add_pairs(record, "solver_d", row.solver_displacements_m.reshape(3, 2), 2)
+        if row.solver_displacements_m.shape == (4, 2):
+            _add_pairs(record, "solver_d", row.solver_displacements_m, 1)
+        else:
+            _add_pairs(record, "solver_d", row.solver_displacements_m.reshape(3, 2), 2)
         observation = row.observation
         record.update(
             {
@@ -1074,7 +1069,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--displacement-mode",
         choices=("electrode1-relative", "absolute"),
-        default="electrode1-relative",
+        default="absolute",
     )
     parser.add_argument(
         "--polarity",

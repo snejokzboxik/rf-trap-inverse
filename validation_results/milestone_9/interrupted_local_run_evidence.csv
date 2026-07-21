@@ -1,0 +1,6 @@
+evidence_id,central_mesh_size_um,row_scope,status,completed_rows,exactly_three_rows,node_count,triangle_count,mean_reference_error_mm,maximum_branch_shift_um,runtime_seconds,source_note
+1,500,rows_1_3,completed_aggregate,3,3,,,0.913486938848,,54.488049,stdout from robust-only parallel selector before interruption
+2,200,row_1,completed_pilot,1,1,8961,17314,1.1456112863,,64.906161,stdout from isolated robust-only row-1 pilot before interruption
+3,200,rows_1_3,incomplete_aggregate,1,1,,,1.1456112863,30.118539,291.361574,stdout from contention-affected robust-only selector; two rows returned no result under the then-current 300 s cap
+4,100,rows_1_3,failed_or_timed_out,0,0,,,,,,stdout reported zero completed rows; process-level failure detail was not persisted
+5,50,row_1,manually_terminated,0,0,,,,,>600,obsolete all-modes pilot exceeded ten minutes and was terminated without a result

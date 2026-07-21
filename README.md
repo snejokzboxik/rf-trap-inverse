@@ -1,4 +1,4 @@
-# RF trap forward model and reference benchmarking — milestone 8
+# RF trap forward model and reference benchmarking — milestone 9
 
 This repository implements one reproducible 2D forward-model pipeline for four
 infinitely long, equal-phase cylindrical electrodes.  Given the six Cartesian
@@ -14,6 +14,12 @@ displacements of electrodes 2–4, it:
 The recovered-gradient search remains the default for regression compatibility.
 Milestone eight adds explicit `recovered-gradient`, `raw-element-diagnostic`, and
 `robust` post-processing modes without changing the FEM solve or default physics.
+
+Milestone nine adds an opt-in Gmsh size field for a fine central disk with a
+coarse outer domain, then screens named geometry, electrode-voltage, mapping,
+and bounded output-transform diagnostics against `Data.txt`. Atomic checkpoints
+preserve completed fresh-process evaluations. The default real-scale geometry,
+all-positive physics, and legacy mesh configuration remain unchanged.
 
 The package also runs full mesh-size × outer-radius convergence studies, compares
 successive minima with minimum-distance spatial assignment, and writes CSV,
@@ -51,11 +57,12 @@ electrode-centre radius is therefore 21.48 mm. With
 - E3 = `(-a, -a)` (lower left);
 - E4 = `(+a, -a)` (lower right).
 
-The six-component forward API always fixes E1 and accepts E2--E4 displacements.
-Dataset validation can either translate raw coordinates into that E1-relative
-frame or apply all four raw displacements in an explicit absolute-frame
-diagnostic. Source-electrode permutations are named and reported; they never
-silently change this FEM numbering.
+The legacy six-component forward API fixes E1 and accepts E2--E4 displacements.
+The main `Data.txt` validation path instead accepts four absolute displacement
+pairs, moves E1--E4, and keeps the grounded outer circle fixed at the origin.
+The old E1-relative path remains available only as an explicit legacy option.
+Source-electrode permutations are named and reported; they never silently
+change this FEM numbering.
 
 ## Install and run
 
@@ -74,6 +81,8 @@ python -m venv .venv
 .venv\Scripts\rf-trap-hypothesis-validation
 .venv\Scripts\rf-trap-fem-audit
 .venv\Scripts\rf-trap-robust-minima-validation
+.venv\Scripts\rf-trap-calibrated-validation --resume-interrupted-local
+.venv\Scripts\rf-trap-absolute-displacement-check
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -174,6 +183,27 @@ explain a significant part of the mismatch. Robust topology remains exactly
 three at 1.5, 1.0, and 0.75 mm; all 69 branch transitions at h<=1.5 mm are
 stable within 0.25 mm. See `docs/MILESTONE_8_RESULTS.md`. The validation gate
 still fails and synthetic generation remains unsafe.
+
+`rf-trap-calibrated-validation` runs the milestone-nine targeted-refinement and
+calibration study under `validation_results/milestone_9`. The verified resumed
+run selects a 500 um central mesh because it is the only local size with complete
+rows 1--3 evidence; the completed row-1 200 um refinement worsens error by
+0.791%, while finer attempts time out or are impractical by explicit preflight.
+
+On rows 1--10, a bounded output transform of the real-scale all-positive
+E1,E3,E2,E4 baseline reaches 1.07456 mm mean and 5.53543 mm maximum error. On
+promoted rows 1--20, the untransformed baseline ranks first at 1.07473 mm mean,
+5.97072 mm maximum, and exactly-three topology in 20/20 rows. Geometry and
+voltage calibration do not meet the 0.25/0.5 mm error gate. See
+`docs/MILESTONE_9_RESULTS.md`. The remaining evidence points to a missing
+electrode/drive assumption—most directly the article's eight-rod octupole versus
+the current four-hole model—and synthetic generation remains unsafe.
+
+`rf-trap-absolute-displacement-check` is the focused convention correction. It
+runs only rows 1--10 at the 500 um local mesh with robust minima for the identity
+and E1,E3,E2,E4 mappings. It passes the raw four displacement pairs directly to
+the absolute geometry builder; no calibration or refinement sweep is involved.
+Outputs are written under `validation_results/absolute_displacement_check`.
 
 This milestone intentionally contains no ML, inverse model, or synthetic dataset
 generator.

@@ -5,7 +5,9 @@ from __future__ import annotations
 import pickle
 import sys
 
-from .forward import run_forward_model
+import numpy as np
+
+from .forward import run_forward_model, run_forward_model_from_absolute_displacements
 from .reference_validation import ForwardFailure, forward_observation_from_result
 
 
@@ -14,7 +16,13 @@ def main() -> int:
 
     displacements_m, config = pickle.loads(sys.stdin.buffer.read())
     try:
-        result = run_forward_model(displacements_m, config)
+        if np.asarray(displacements_m).shape in ((4, 2), (8,)):
+            result = run_forward_model_from_absolute_displacements(
+                displacements_m,
+                config,
+            )
+        else:
+            result = run_forward_model(displacements_m, config)
         outcome = forward_observation_from_result(result)
     except Exception as error:  # the parent report must preserve failed rows
         outcome = ForwardFailure(type(error).__name__, str(error))

@@ -92,6 +92,42 @@ def build_geometry(
     return TrapGeometry(config=config, centers_m=centers, displacements_m=vector)
 
 
+def absolute_displacements_m(values: ArrayLike) -> NDArray[np.float64]:
+    """Return four validated absolute electrode-displacement pairs in metres.
+
+    Both an explicit ``(4, 2)`` array and a flat eight-component vector are
+    accepted. The legacy six-component, E1-fixed representation is
+    intentionally rejected by this Data.txt input path.
+    """
+
+    displacements = np.asarray(values, dtype=float)
+    if displacements.shape == (8,):
+        displacements = displacements.reshape(4, 2)
+    if displacements.shape != (4, 2):
+        raise ValueError(
+            "absolute_displacements_m must have shape (4, 2) or (8,)"
+        )
+    if not np.all(np.isfinite(displacements)):
+        raise ValueError("absolute_displacements_m must contain only finite values")
+    return displacements.copy()
+
+
+def build_geometry_from_absolute_displacements(
+    config: GeometryConfig,
+    absolute_displacements_m_values: ArrayLike,
+) -> TrapGeometry:
+    """Move all four electrodes in the fixed outer-boundary coordinate frame."""
+
+    displacements = absolute_displacements_m(absolute_displacements_m_values)
+    centers = np.asarray(config.nominal_centers_m, dtype=float) + displacements
+    _validate_non_overlapping_domain(config, centers)
+    return TrapGeometry(
+        config=config,
+        centers_m=centers,
+        displacements_m=displacements,
+    )
+
+
 def _validate_non_overlapping_domain(config: GeometryConfig, centers_m: NDArray[np.float64]) -> None:
     sanity = geometry_sanity(config, centers_m)
     if sanity.minimum_outer_clearance_m <= 0.0:

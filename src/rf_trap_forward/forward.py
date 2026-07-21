@@ -9,7 +9,11 @@ from numpy.typing import ArrayLike, NDArray
 
 from .config import ForwardModelConfig
 from .field import RecoveredField, recover_field
-from .geometry import TrapGeometry, build_geometry
+from .geometry import (
+    TrapGeometry,
+    build_geometry,
+    build_geometry_from_absolute_displacements,
+)
 from .mesh import TrapMesh, generate_mesh
 from .minima import LocalMinimum, MinimaDiagnostics, find_local_minima
 from .minima_modes import (
@@ -52,6 +56,43 @@ def run_forward_model(
     """Run the FEM pipeline with an explicit, default-preserving minima mode."""
 
     geometry = build_geometry(config.geometry, displacements_m)
+    return _run_forward_geometry(
+        geometry,
+        config,
+        minima_mode,
+        robust_minima_config,
+    )
+
+
+def run_forward_model_from_absolute_displacements(
+    absolute_displacements_m: ArrayLike,
+    config: ForwardModelConfig,
+    *,
+    minima_mode: MinimaMode = "recovered-gradient",
+    robust_minima_config: RobustMinimaConfig | None = None,
+) -> ForwardModelResult:
+    """Run the FEM pipeline while moving all four electrodes in the lab frame."""
+
+    geometry = build_geometry_from_absolute_displacements(
+        config.geometry,
+        absolute_displacements_m,
+    )
+    return _run_forward_geometry(
+        geometry,
+        config,
+        minima_mode,
+        robust_minima_config,
+    )
+
+
+def _run_forward_geometry(
+    geometry: TrapGeometry,
+    config: ForwardModelConfig,
+    minima_mode: MinimaMode,
+    robust_minima_config: RobustMinimaConfig | None,
+) -> ForwardModelResult:
+    """Run the shared solver and postprocessor for an already-built geometry."""
+
     trap_mesh = generate_mesh(geometry, config.mesh)
     solution = solve_potential(geometry, trap_mesh, config.solver)
     recovered_field = recover_field(solution)

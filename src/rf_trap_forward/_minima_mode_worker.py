@@ -6,8 +6,10 @@ import pickle
 import sys
 import time
 
+import numpy as np
+
 from .field import recover_field
-from .geometry import build_geometry
+from .geometry import build_geometry, build_geometry_from_absolute_displacements
 from .mesh import generate_mesh
 from .minima_modes import RobustMinimaConfig, run_minima_mode
 from .solver import solve_potential
@@ -21,7 +23,13 @@ def main() -> int:
         if not isinstance(robust_config, RobustMinimaConfig):
             raise TypeError("worker requires RobustMinimaConfig")
         started = time.perf_counter()
-        geometry = build_geometry(config.geometry, displacements_m)
+        if np.asarray(displacements_m).shape in ((4, 2), (8,)):
+            geometry = build_geometry_from_absolute_displacements(
+                config.geometry,
+                displacements_m,
+            )
+        else:
+            geometry = build_geometry(config.geometry, displacements_m)
         trap_mesh = generate_mesh(geometry, config.mesh)
         solution = solve_potential(geometry, trap_mesh, config.solver)
         recovered = recover_field(solution)

@@ -114,6 +114,10 @@ def test_mocked_forward_run_uses_electrode1_relative_convention() -> None:
         demonstrator_config(),
         (1,),
         runner=runner,
+        variant=ReferenceValidationVariant(
+            name="legacy-relative-test",
+            displacement_mode="electrode1-relative",
+        ),
     )
     np.testing.assert_allclose(
         captured[0],
@@ -126,8 +130,8 @@ def test_mocked_forward_run_uses_electrode1_relative_convention() -> None:
     np.testing.assert_allclose(row.error_distances_m(), np.sqrt(5.0) * 1.0e-6)
 
 
-def test_absolute_mode_applies_all_four_raw_displacements() -> None:
-    """Absolute diagnostics must move E1 and pass raw E2--E4 coordinates."""
+def test_default_data_path_passes_all_four_raw_displacement_pairs() -> None:
+    """Data.txt validation must pass raw E1--E4 pairs without subtracting E1."""
 
     dataset = _one_row_dataset()
     captured: list[tuple[np.ndarray, object]] = []
@@ -142,18 +146,17 @@ def test_absolute_mode_applies_all_four_raw_displacements() -> None:
         base,
         (1,),
         runner=runner,
-        variant=ReferenceValidationVariant(
-            name="absolute-test",
-            displacement_mode="absolute",
-        ),
     )
-    expected_solver = dataset.raw_displacements_m[0, 1:].reshape(6)
-    np.testing.assert_allclose(captured[0][0], expected_solver)
+    np.testing.assert_allclose(captured[0][0], dataset.raw_displacements_m[0])
     row_config = captured[0][1]
     np.testing.assert_allclose(
-        row_config.geometry.nominal_centers_m[0],
-        np.asarray(base.geometry.nominal_centers_m[0])
-        + dataset.raw_displacements_m[0, 0],
+        row_config.geometry.nominal_centers_m,
+        base.geometry.nominal_centers_m,
+    )
+    assert report.variant.displacement_mode == "absolute"
+    np.testing.assert_allclose(
+        report.rows[0].solver_displacements_m,
+        dataset.raw_displacements_m[0],
     )
     np.testing.assert_allclose(report.rows[0].error_distances_m(), 0.0)
 
@@ -180,6 +183,10 @@ def test_summary_metrics_include_all_matched_minima() -> None:
         demonstrator_config(),
         (1,),
         runner=lambda _displacements, _config: observation,
+        variant=ReferenceValidationVariant(
+            name="legacy-relative-summary",
+            displacement_mode="electrode1-relative",
+        ),
     )
     summary = report.summary()
     assert summary.completed_rows == 1
@@ -222,6 +229,10 @@ def test_csv_markdown_and_plot_outputs_from_mocked_data(tmp_path: Path) -> None:
         (1,),
         runner=lambda _displacements, _config: _MockForwardResult(
             reference + np.asarray([1.0e-6, 0.0])
+        ),
+        variant=ReferenceValidationVariant(
+            name="legacy-relative-output",
+            displacement_mode="electrode1-relative",
         ),
     )
     paths = write_reference_validation_outputs(report, tmp_path / "report")

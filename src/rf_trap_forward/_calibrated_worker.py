@@ -1,26 +1,28 @@
-"""Fresh-process one-electrode basis-field evaluator for Milestone 6."""
+"""Fresh-process robust-only FEM worker for Milestone 9 calibration."""
 
 from __future__ import annotations
 
 import pickle
 import sys
-from dataclasses import replace
+import time
 
 import numpy as np
 
 from .field import recover_field
 from .geometry import build_geometry, build_geometry_from_absolute_displacements
 from .mesh import generate_mesh
+from .minima_modes import RobustMinimaConfig, run_minima_mode
 from .solver import solve_potential
 
 
 def main() -> int:
-    """Read one geometry request and return four one-hot recovered fields."""
+    """Run one robust-only forward case and return serializable diagnostics."""
 
-    displacements_m, config, target_positions_m = pickle.loads(
-        sys.stdin.buffer.read()
-    )
+    started = time.perf_counter()
     try:
+        displacements_m, config, robust_config = pickle.loads(sys.stdin.buffer.read())
+        if not isinstance(robust_config, RobustMinimaConfig):
+            raise TypeError("worker requires RobustMinimaConfig")
         if np.asarray(displacements_m).shape in ((4, 2), (8,)):
             geometry = build_geometry_from_absolute_displacements(
                 config.geometry,
@@ -29,29 +31,28 @@ def main() -> int:
         else:
             geometry = build_geometry(config.geometry, displacements_m)
         trap_mesh = generate_mesh(geometry, config.mesh)
-        basis_fields = []
-        for electrode in range(4):
-            potentials = tuple(
-                1.0 if index == electrode else 0.0 for index in range(4)
-            )
-            basis_geometry = replace(
-                geometry,
-                config=replace(
-                    geometry.config,
-                    electrode_potentials_v=potentials,
-                ),
-            )
-            solution = solve_potential(basis_geometry, trap_mesh, config.solver)
-            basis_fields.append(recover_field(solution).evaluate(target_positions_m))
-        outcome: dict[str, object] = {
+        solution = solve_potential(geometry, trap_mesh, config.solver)
+        recovered = recover_field(solution)
+        result = run_minima_mode(
+            recovered,
+            solution.potential_v,
+            config.minima,
+            mode="robust",
+            robust_config=robust_config,
+        )
+        outcome = {
             "ok": True,
-            "basis_fields_v_per_m": np.stack(basis_fields, axis=2),
+            "modes": {"robust": result},
+            "mode_errors": {},
             "node_count": trap_mesh.number_of_nodes,
             "triangle_count": trap_mesh.number_of_triangles,
+            "relative_free_residual": solution.relative_free_residual,
+            "runtime_seconds": time.perf_counter() - started,
         }
     except Exception as error:
         outcome = {
             "ok": False,
+            "runtime_seconds": time.perf_counter() - started,
             "error_type": type(error).__name__,
             "error_message": str(error),
         }

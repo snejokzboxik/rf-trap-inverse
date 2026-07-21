@@ -74,6 +74,7 @@ def test_e1_preserving_permutation_reorders_solver_displacements() -> None:
     dataset = _dataset()
     variant = ReferenceValidationVariant(
         name="perm-1324",
+        displacement_mode="electrode1-relative",
         electrode_permutation=(1, 3, 2, 4),
     )
     solver, reference, _ = prepare_reference_row_inputs(

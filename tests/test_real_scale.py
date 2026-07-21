@@ -8,10 +8,12 @@ import numpy as np
 import pytest
 
 from rf_trap_forward.real_scale import (
+    REAL_CENTRAL_REFINEMENT_RADIUS_M,
     REAL_ELECTRODE_RADIUS_M,
     REAL_INNER_RADIUS_M,
     REAL_OUTER_BOUNDARY_RADIUS_M,
     electrode_center_radius_m,
+    locally_refined_real_scale_forward_config,
     real_scale_forward_config,
     real_scale_geometry_config,
 )
@@ -46,3 +48,20 @@ def test_real_scale_search_contains_supplied_reference_radius() -> None:
     config = real_scale_forward_config()
     assert config.minima.search_half_extent_m >= 6.5e-3
     assert config.minima.search_half_extent_m == pytest.approx(8.0e-3)
+
+
+def test_local_refinement_is_named_and_preserves_default_configuration() -> None:
+    """Local controls must be opt-in and cover the reference minima cloud."""
+
+    legacy = real_scale_forward_config()
+    refined = locally_refined_real_scale_forward_config(
+        central_mesh_size_m=0.20e-3,
+    )
+    assert legacy.mesh.size_field is None
+    assert refined.mesh.size_field is not None
+    assert refined.mesh.size_field.central_region_radius_m == pytest.approx(
+        REAL_CENTRAL_REFINEMENT_RADIUS_M
+    )
+    assert refined.mesh.size_field.central_region_radius_m >= 6.5e-3
+    assert refined.mesh.size_field.central_mesh_size_m == pytest.approx(0.20e-3)
+    assert refined.mesh.size_field.outer_mesh_size_m == pytest.approx(2.0e-3)

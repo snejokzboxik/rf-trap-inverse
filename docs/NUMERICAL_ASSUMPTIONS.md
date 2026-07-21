@@ -12,10 +12,11 @@
   infinity at a finite, configurable radius. The real-scale reference-validation
   configuration uses 50 mm. Earlier 3.5, 4.0, and 5.0 mm studies apply only to
   the retained demonstrator.
-- Electrode 1 is fixed. The six model inputs are `(dx2, dy2, dx3, dy3, dx4,
-  dy4)` in metres and are added to configurable nominal centres. An
-  absolute-frame validation diagnostic applies raw E1 displacement by creating a
-  row-specific geometry; the core six-coordinate API remains unchanged.
+- The legacy six model inputs are `(dx2, dy2, dx3, dy3, dx4, dy4)` in metres
+  and keep electrode 1 fixed. The main `Data.txt` validation input is instead
+  the raw `(4,2)` array (or flat eight-vector): all four nominal electrode
+  centres receive their absolute displacements while the outer boundary remains
+  fixed at the origin. The old relative path remains available explicitly.
 - `|E|²` is only proportional to the physical RF pseudopotential.  No ion charge,
   mass, drive frequency, or amplitude scaling is included.
 - The example and milestone-one/two regression tests retain provisional values.
@@ -197,3 +198,28 @@
   the remaining spatial mismatch belongs to the physical model class/topology,
   while not claiming exact mesh invariance. The validation gate still fails,
   so synthetic generation remains unsafe.
+- Milestone nine adds an opt-in Gmsh background size field: 2 mm in the outer
+  domain, 0.5 mm at electrode boundaries, and a configurable 8 mm-radius central
+  disk. The legacy `MeshConfig` has no size field by default, so regression
+  meshes and physical defaults are unchanged.
+- The resumed local-refinement evidence completes rows 1--3 at 500 um with
+  exactly-three robust topology and 0.913487 mm mean error. Only row 1 completes
+  at 200 um; its mean error worsens by 0.791% and its maximum branch shift is
+  30.1185 um. The interrupted 200 um rows 2--3 and 100 um attempts are retained
+  as failures/timeouts. A 50 um all-modes pilot exceeded 600 s and was
+  terminated. Finer disk-only preflight estimates rise from 1.16 million
+  triangles at 20 um to 4.64 billion at 0.316228 um.
+- Calibration screening is explicitly diagnostic. The best raw rows 1--3
+  geometry uses 12 mm electrode radius and has 0.812039 mm mean error. The best
+  fitted voltage vector is within 0.0205% of all-positive. Neither improvement
+  generalizes enough to satisfy the reference gate.
+- On rows 1--10 the 500 um central real-scale all-positive E1,E3,E2,E4 baseline
+  has 1.082384 mm mean error. A bounded output scale/rotation/anisotropy fit lowers
+  it only to 1.074555 mm and leaves 5.535433 mm maximum error. On rows 1--20 the
+  untransformed baseline is best at 1.074730 mm mean, 5.970718 mm maximum, and
+  exactly-three topology in 20/20 rows.
+- With assembly, sign, boundary, geometry, postprocessing, local resolution,
+  mapping, reasonable 2D geometry, and static voltage hypotheses audited, the
+  leading missing assumption is the electrode/drive model: the reference
+  article describes an eight-rod octupole while this FEM has four circular holes
+  with one scalar potential per electrode. Synthetic generation remains unsafe.
