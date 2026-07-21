@@ -89,6 +89,7 @@ python -m venv .venv
 .venv\Scripts\rf-trap-train-inverse
 .venv\Scripts\rf-trap-closed-loop-inverse --n 20
 .venv\Scripts\rf-trap-train-inverse-v2
+.venv\Scripts\rf-trap-compare-closed-loop-inverse --n 20
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -264,3 +265,10 @@ reports raw predictions alongside coordinate-wise clipping to the known
 ±500 um training bounds. It does not run FEM, create data, or alter the first
 baseline. Results and the winning joblib model are written under
 `validation_results/inverse_model_v2`.
+
+`rf-trap-compare-closed-loop-inverse` puts the retained v1 MLP and the saved,
+clipped v2 MLP through the same deterministic held-out cases, Wolfram-to-FEM
+transform, robust forward solve, and Hungarian matching. It saves the
+like-for-like physical comparison under
+`validation_results/inverse_closed_loop_comparison`; it does not fit models or
+generate data.

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rf-trap-forward"
-version = "0.12.0"
+version = "0.12.1"
 description = "A tested RF-trap forward model with convergence and reference benchmarking."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -35,6 +35,7 @@ rf-trap-audit-dataset = "rf_trap_forward.dataset_qa:main"
 rf-trap-train-inverse = "rf_trap_forward.inverse_training:main"
 rf-trap-closed-loop-inverse = "rf_trap_forward.closed_loop_inverse:main"
 rf-trap-train-inverse-v2 = "rf_trap_forward.inverse_training_v2:main"
+rf-trap-compare-closed-loop-inverse = "rf_trap_forward.closed_loop_comparison:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8.3,<10"]
