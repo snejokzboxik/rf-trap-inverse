@@ -87,6 +87,7 @@ python -m venv .venv
 .venv\Scripts\rf-trap-generate-dataset --n 100 --seed 123
 .venv\Scripts\rf-trap-audit-dataset
 .venv\Scripts\rf-trap-train-inverse
+.venv\Scripts\rf-trap-closed-loop-inverse --n 20
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -244,3 +245,12 @@ metrics, plots, and fitted joblib files under
 `validation_results/inverse_model_baseline`. The six-observation/eight-target
 map is generally underdetermined; baseline accuracy must not be interpreted as
 proof of a unique physical inverse.
+
+`rf-trap-closed-loop-inverse` performs a focused physical loop-closure check for
+the saved MLP. It selects held-out sample IDs from `test_predictions.csv`, maps
+the original minima through the inverse model, applies
+`F1,F2,F3,F4 = -[W3,W1,W4,W2]`, and runs the practical 500 um robust forward
+solve. Recomputed minima are Hungarian-matched to the original inputs. No
+prediction clipping, model fitting, new data generation, calibration, or mesh
+sweep is performed. Outputs are written under
+`validation_results/inverse_closed_loop`.
