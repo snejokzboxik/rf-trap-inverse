@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,7 @@ from rf_trap_forward.synthetic_dataset import (
     SyntheticSolveResult,
     build_parser,
     generate_synthetic_dataset,
+    generate_synthetic_dataset_incrementally,
     sample_wolfram_displacements_m,
     write_synthetic_dataset,
 )
@@ -90,8 +92,12 @@ def test_large_request_safety_gate_needs_no_fem_solve() -> None:
         match="n > 1000 requires --allow-large-n because generation may take many hours",
     ):
         SyntheticDatasetConfig(n=10_000)
-    arguments = build_parser().parse_args(("--n", "10000", "--allow-large-n"))
+    arguments = build_parser().parse_args(
+        ("--n", "10000", "--allow-large-n", "--batch-size", "500", "--resume")
+    )
     assert arguments.allow_large_n is True
+    assert arguments.batch_size == 500
+    assert arguments.resume is True
     assert SyntheticDatasetConfig(
         n=arguments.n,
         allow_large_n=arguments.allow_large_n,
@@ -123,6 +129,79 @@ def test_validated_large_request_reaches_sampling_without_fem(
         synthetic_dataset.generate_synthetic_dataset(
             SyntheticDatasetConfig(n=10_000, seed=7, allow_large_n=True)
         )
+
+
+def test_incremental_batches_create_files_and_flush_before_later_solves(
+    tmp_path: Path,
+) -> None:
+    """A five-row mocked run must checkpoint each two-attempt batch durably."""
+
+    output = tmp_path / "checkpointed"
+    observed: list[int] = []
+
+    def worker(*_: object) -> SyntheticSolveResult:
+        assert output.is_dir()
+        return _clean_worker()
+
+    def progress(completed: int, _: int, __: float) -> None:
+        observed.append(completed)
+        with (output / "synthetic_clean.csv").open(encoding="utf-8", newline="") as stream:
+            assert len(list(csv.DictReader(stream))) == completed
+        checkpoint = json.loads((output / "progress.json").read_text(encoding="utf-8"))
+        assert checkpoint["completed_attempts"] == completed
+
+    result = generate_synthetic_dataset_incrementally(
+        SyntheticDatasetConfig(n=5, seed=9, batch_size=2, max_workers=1),
+        output,
+        worker=worker,
+        progress_callback=progress,
+    )
+    assert observed == [2, 4, 5]
+    assert not result.interrupted
+    assert result.progress.completed_attempts == 5
+    assert result.progress.clean_count == 5
+    assert result.paths.summary_json.is_file()
+
+
+def test_keyboard_interrupt_writes_partial_files_and_resume_has_no_duplicates(
+    tmp_path: Path,
+) -> None:
+    """A Ctrl+C-like worker interruption must save a usable contiguous prefix."""
+
+    output = tmp_path / "interrupted"
+    calls = 0
+
+    def interrupting_worker(*_: object) -> SyntheticSolveResult:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise KeyboardInterrupt
+        return _clean_worker()
+
+    config = SyntheticDatasetConfig(n=5, seed=10, batch_size=2, max_workers=1)
+    partial = generate_synthetic_dataset_incrementally(
+        config,
+        output,
+        worker=interrupting_worker,
+    )
+    assert partial.interrupted
+    assert partial.progress.completed_attempts == 1
+    progress = json.loads((output / "progress.json").read_text(encoding="utf-8"))
+    summary = json.loads((output / "synthetic_summary.json").read_text(encoding="utf-8"))
+    assert progress["last_sample_id"] == 1
+    assert summary["partial"] is True
+
+    resumed = generate_synthetic_dataset_incrementally(
+        config,
+        output,
+        resume=True,
+        worker=_clean_worker,
+    )
+    assert not resumed.interrupted
+    with (output / "synthetic_clean.csv").open(encoding="utf-8", newline="") as stream:
+        identifiers = [int(row["sample_id"]) for row in csv.DictReader(stream)]
+    assert identifiers == [1, 2, 3, 4, 5]
+    assert len(identifiers) == len(set(identifiers))
 
 
 def test_csv_columns_are_stable_for_clean_and_rejected_files(

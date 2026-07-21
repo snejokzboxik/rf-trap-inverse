@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import time
 from collections import Counter
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -78,13 +80,14 @@ REJECTED_CSV_COLUMNS = CLEAN_CSV_COLUMNS + (
 
 @dataclass(frozen=True)
 class SyntheticDatasetConfig:
-    """Sampling, mesh, ambiguity, concurrency, and large-run controls."""
+    """Sampling, mesh, ambiguity, checkpoint, and worker-pool controls."""
 
     n: int = 100
     seed: int = 123
     max_displacement_m: float = 500.0e-6
     mesh_mode: MeshMode = "practical"
-    batch_size: int = 3
+    batch_size: int = 500
+    max_workers: int = 3
     ambiguous_minimum_distance_m: float = DEFAULT_AMBIGUOUS_MINIMUM_DISTANCE_M
     allow_large_n: bool = False
 
@@ -105,6 +108,8 @@ class SyntheticDatasetConfig:
             raise ValueError("mesh_mode must be 'practical'")
         if self.batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        if self.max_workers <= 0:
+            raise ValueError("max_workers must be positive")
         if (
             not np.isfinite(self.ambiguous_minimum_distance_m)
             or self.ambiguous_minimum_distance_m <= 0.0
@@ -243,8 +248,53 @@ class SyntheticDatasetOutputPaths:
 
     clean_csv: Path
     rejected_csv: Path
+    progress_json: Path
     summary_json: Path
     readme_markdown: Path
+
+
+@dataclass
+class SyntheticGenerationProgress:
+    """Durable counts and deterministic resume cursor for incremental generation."""
+
+    requested_n: int
+    completed_attempts: int
+    clean_count: int
+    rejected_count: int
+    ambiguous_branch_count: int
+    solver_failure_count: int
+    last_sample_id: int
+    seed: int
+    updated_at: str
+    elapsed_seconds: float
+    status_counts: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-safe checkpoint payload with required progress fields."""
+
+        return {
+            "requested_n": self.requested_n,
+            "completed_attempts": self.completed_attempts,
+            "clean_count": self.clean_count,
+            "rejected_count": self.rejected_count,
+            "ambiguous_branch_count": self.ambiguous_branch_count,
+            "solver_failure_count": self.solver_failure_count,
+            "last_sample_id": self.last_sample_id,
+            "seed": self.seed,
+            "updated_at": self.updated_at,
+            "elapsed_seconds": self.elapsed_seconds,
+            "status_counts": dict(sorted(self.status_counts.items())),
+        }
+
+
+@dataclass(frozen=True)
+class IncrementalGenerationResult:
+    """Checkpointed generation outcome, including an intentional interruption."""
+
+    config: SyntheticDatasetConfig
+    paths: SyntheticDatasetOutputPaths
+    progress: SyntheticGenerationProgress
+    interrupted: bool
 
 
 SyntheticWorker = Callable[
@@ -311,7 +361,7 @@ def generate_synthetic_dataset(
 ) -> SyntheticDatasetResult:
     """Sample inputs, solve valid geometries, and split clean from rejected rows.
 
-    ``batch_size`` is the maximum number of concurrent fresh FEM subprocesses.
+    ``max_workers`` is the maximum number of concurrent fresh FEM subprocesses.
     Returned records are always sorted by deterministic one-based sample ID.
     """
 
@@ -349,7 +399,7 @@ def generate_synthetic_dataset(
     if progress_callback is not None and completed:
         progress_callback(completed, config.n, time.perf_counter() - started)
     with ThreadPoolExecutor(
-        max_workers=min(config.batch_size, max(1, len(prepared)))
+        max_workers=min(config.max_workers, max(1, len(prepared)))
     ) as executor:
         futures = {
             executor.submit(
@@ -382,6 +432,378 @@ def generate_synthetic_dataset(
     )
 
 
+def generate_synthetic_dataset_incrementally(
+    config: SyntheticDatasetConfig,
+    output_directory: str | Path,
+    *,
+    resume: bool = False,
+    worker: SyntheticWorker | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> IncrementalGenerationResult:
+    """Generate durable deterministic batches that can resume after interruption.
+
+    Every completed batch is appended to exactly one split CSV, flushed to disk,
+    and followed by an atomic ``progress.json`` and partial summary update.  The
+    deterministic sample array is regenerated from the same seed on resume;
+    completed one-based IDs are never resubmitted to the FEM worker.
+    """
+
+    paths, progress = _initialize_incremental_output(config, output_directory, resume)
+    started = time.perf_counter()
+    previous_elapsed = progress.elapsed_seconds
+    forward_config = practical_generator_forward_config(config.mesh_mode)
+    robust_config = RobustMinimaConfig()
+    selected_worker = worker or _default_fem_worker
+    sampled = sample_wolfram_displacements_m(
+        config.n,
+        config.seed,
+        config.max_displacement_m,
+    )
+    next_sample_id = progress.last_sample_id + 1
+    while next_sample_id <= config.n:
+        final_sample_id = min(config.n, next_sample_id + config.batch_size - 1)
+        records, interrupted = _generate_incremental_batch(
+            config,
+            sampled,
+            next_sample_id,
+            final_sample_id,
+            forward_config,
+            robust_config,
+            selected_worker,
+        )
+        if records:
+            _append_checkpoint_records(paths, records)
+            _update_progress(progress, records, previous_elapsed + time.perf_counter() - started)
+            _write_checkpoint_artifacts(paths, config, progress, interrupted=interrupted)
+            if progress_callback is not None:
+                progress_callback(
+                    progress.completed_attempts,
+                    config.n,
+                    progress.elapsed_seconds,
+                )
+        if interrupted:
+            if not records:
+                _write_checkpoint_artifacts(paths, config, progress, interrupted=True)
+            return IncrementalGenerationResult(config, paths, progress, interrupted=True)
+        next_sample_id = final_sample_id + 1
+    _write_checkpoint_artifacts(paths, config, progress, interrupted=False)
+    return IncrementalGenerationResult(config, paths, progress, interrupted=False)
+
+
+def _initialize_incremental_output(
+    config: SyntheticDatasetConfig,
+    output_directory: str | Path,
+    resume: bool,
+) -> tuple[SyntheticDatasetOutputPaths, SyntheticGenerationProgress]:
+    """Create durable files immediately or validate a compatible resume point."""
+
+    output = Path(output_directory)
+    output.mkdir(parents=True, exist_ok=True)
+    paths = _output_paths(output)
+    if resume:
+        if not paths.progress_json.is_file():
+            raise FileNotFoundError("--resume requires an existing progress.json")
+        progress = _read_progress(paths.progress_json)
+        if progress.requested_n != config.n or progress.seed != config.seed:
+            raise ValueError("--resume requires the original n and seed")
+        _validate_csv_header(paths.clean_csv, CLEAN_CSV_COLUMNS)
+        _validate_csv_header(paths.rejected_csv, REJECTED_CSV_COLUMNS)
+        recovered = _progress_from_existing_rows(paths, config, progress.elapsed_seconds)
+        if recovered.completed_attempts < progress.completed_attempts:
+            raise ValueError("progress.json is ahead of the split CSV files")
+        if recovered.completed_attempts > progress.completed_attempts:
+            progress = recovered
+            _write_checkpoint_artifacts(paths, config, progress, interrupted=True)
+        return paths, progress
+    existing = (paths.clean_csv, paths.rejected_csv, paths.progress_json)
+    if any(path.exists() for path in existing):
+        raise FileExistsError("output already contains generation state; use --resume")
+    _write_csv(paths.clean_csv, CLEAN_CSV_COLUMNS, ())
+    _write_csv(paths.rejected_csv, REJECTED_CSV_COLUMNS, ())
+    progress = SyntheticGenerationProgress(
+        requested_n=config.n,
+        completed_attempts=0,
+        clean_count=0,
+        rejected_count=0,
+        ambiguous_branch_count=0,
+        solver_failure_count=0,
+        last_sample_id=0,
+        seed=config.seed,
+        updated_at=_utc_timestamp(),
+        elapsed_seconds=0.0,
+    )
+    _write_checkpoint_artifacts(paths, config, progress, interrupted=False)
+    return paths, progress
+
+
+def _output_paths(output: Path) -> SyntheticDatasetOutputPaths:
+    """Return all durable output locations under one already-created directory."""
+
+    return SyntheticDatasetOutputPaths(
+        clean_csv=output / "synthetic_clean.csv",
+        rejected_csv=output / "synthetic_rejected.csv",
+        progress_json=output / "progress.json",
+        summary_json=output / "synthetic_summary.json",
+        readme_markdown=output / "README.md",
+    )
+
+
+def _generate_incremental_batch(
+    config: SyntheticDatasetConfig,
+    sampled: NDArray[np.float64],
+    first_sample_id: int,
+    last_sample_id: int,
+    forward_config: ForwardModelConfig,
+    robust_config: RobustMinimaConfig,
+    worker: SyntheticWorker,
+) -> tuple[tuple[SyntheticSampleRecord, ...], bool]:
+    """Solve one bounded ID interval and retain a contiguous interrupted prefix."""
+
+    records: dict[int, SyntheticSampleRecord] = {}
+    prepared: list[tuple[int, NDArray[np.float64], NDArray[np.float64]]] = []
+    for sample_id in range(first_sample_id, last_sample_id + 1):
+        raw = sampled[sample_id - 1]
+        transformed = wolfram_to_fem_absolute_displacements_m(raw)
+        try:
+            build_geometry_from_absolute_displacements(forward_config.geometry, transformed)
+        except ValueError as error:
+            records[sample_id] = _record_from_failure(
+                sample_id, config.seed, raw, transformed, "geometry_overlap",
+                type(error).__name__, str(error),
+            )
+        else:
+            prepared.append((sample_id, raw.copy(), transformed))
+    interrupted = False
+    if prepared:
+        with ThreadPoolExecutor(
+            max_workers=min(config.max_workers, len(prepared))
+        ) as executor:
+            futures = {
+                executor.submit(
+                    _safe_worker_call, worker, transformed, forward_config, robust_config
+                ): (sample_id, raw, transformed)
+                for sample_id, raw, transformed in prepared
+            }
+            try:
+                for future in as_completed(futures):
+                    sample_id, raw, transformed = futures[future]
+                    records[sample_id] = _record_from_solve(
+                        sample_id, config, raw, transformed, future.result()
+                    )
+            except KeyboardInterrupt:
+                interrupted = True
+                for future in futures:
+                    future.cancel()
+                for future, (sample_id, raw, transformed) in futures.items():
+                    if sample_id in records or not future.done() or future.cancelled():
+                        continue
+                    try:
+                        solve = future.result()
+                    except BaseException:
+                        continue
+                    records[sample_id] = _record_from_solve(
+                        sample_id, config, raw, transformed, solve
+                    )
+    if interrupted:
+        prefix: list[SyntheticSampleRecord] = []
+        for sample_id in range(first_sample_id, last_sample_id + 1):
+            if sample_id not in records:
+                break
+            prefix.append(records[sample_id])
+        return tuple(prefix), True
+    return tuple(records[sample_id] for sample_id in range(first_sample_id, last_sample_id + 1)), False
+
+
+def _append_checkpoint_records(
+    paths: SyntheticDatasetOutputPaths,
+    records: Sequence[SyntheticSampleRecord],
+) -> None:
+    """Append one completed batch and synchronously flush both split files."""
+
+    clean = [_csv_record(record, rejected=False) for record in records if record.status == "clean"]
+    rejected = [_csv_record(record, rejected=True) for record in records if record.status != "clean"]
+    _append_csv(paths.clean_csv, CLEAN_CSV_COLUMNS, clean)
+    _append_csv(paths.rejected_csv, REJECTED_CSV_COLUMNS, rejected)
+
+
+def _append_csv(path: Path, columns: Sequence[str], rows: Sequence[dict[str, object]]) -> None:
+    """Append rows, flush Python buffers, and request an operating-system flush."""
+
+    if not rows:
+        return
+    with path.open("a", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(columns))
+        writer.writerows(rows)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def _update_progress(
+    progress: SyntheticGenerationProgress,
+    records: Sequence[SyntheticSampleRecord],
+    elapsed_seconds: float,
+) -> None:
+    """Advance durable counts only across a contiguous saved sample-ID prefix."""
+
+    expected_id = progress.last_sample_id + 1
+    for record in records:
+        if record.sample_id != expected_id:
+            raise ValueError("checkpoint records must have contiguous sample IDs")
+        expected_id += 1
+        progress.completed_attempts += 1
+        progress.last_sample_id = record.sample_id
+        progress.status_counts[record.status] = progress.status_counts.get(record.status, 0) + 1
+        if record.status == "clean":
+            progress.clean_count += 1
+        else:
+            progress.rejected_count += 1
+        if record.status == "ambiguous_branch":
+            progress.ambiguous_branch_count += 1
+        if record.status == "solver_failed":
+            progress.solver_failure_count += 1
+    progress.elapsed_seconds = elapsed_seconds
+    progress.updated_at = _utc_timestamp()
+
+
+def _write_checkpoint_artifacts(
+    paths: SyntheticDatasetOutputPaths,
+    config: SyntheticDatasetConfig,
+    progress: SyntheticGenerationProgress,
+    *,
+    interrupted: bool,
+) -> None:
+    """Atomically save progress and refresh a valid partial summary and README."""
+
+    _write_json_atomic(paths.progress_json, progress.to_dict())
+    summary = _incremental_summary_record(config, progress, interrupted)
+    _write_json_atomic(paths.summary_json, summary)
+    placeholder = SyntheticDatasetResult(config, (), progress.elapsed_seconds)
+    paths.readme_markdown.write_text(_dataset_readme(placeholder, summary), encoding="utf-8")
+
+
+def _incremental_summary_record(
+    config: SyntheticDatasetConfig,
+    progress: SyntheticGenerationProgress,
+    interrupted: bool,
+) -> dict[str, object]:
+    """Describe complete or partial checkpointed data without retaining rows in RAM."""
+
+    return {
+        "requested_samples": config.n,
+        "completed_samples": progress.completed_attempts,
+        "clean_samples": progress.clean_count,
+        "rejected_samples": progress.rejected_count,
+        "ambiguous_branch_count": progress.ambiguous_branch_count,
+        "solver_failure_count": progress.solver_failure_count,
+        "status_counts": dict(sorted(progress.status_counts.items())),
+        "partial": progress.completed_attempts < config.n,
+        "interrupted": interrupted,
+        "last_sample_id": progress.last_sample_id,
+        "seed": config.seed,
+        "max_displacement_m": config.max_displacement_m,
+        "max_displacement_um": 1.0e6 * config.max_displacement_m,
+        "mesh_mode": config.mesh_mode,
+        "central_mesh_size_m": PRACTICAL_CENTRAL_MESH_SIZE_M,
+        "batch_size": config.batch_size,
+        "max_workers": config.max_workers,
+        "ambiguous_minimum_distance_m": config.ambiguous_minimum_distance_m,
+        "wall_runtime_seconds": progress.elapsed_seconds,
+        "coordinate_units": "metres",
+        "raw_electrode_order": ["W1 upper-right", "W2 lower-right", "W3 upper-left", "W4 lower-left"],
+        "fem_electrode_order": ["F1 upper-left", "F2 upper-right", "F3 lower-left", "F4 lower-right"],
+        "wolfram_to_fem_transform": "[-W3, -W1, -W4, -W2]",
+        "outer_boundary_radius_m": REAL_OUTER_BOUNDARY_RADIUS_M,
+        "electrode_radius_m": REAL_ELECTRODE_RADIUS_M,
+        "inner_radius_to_surface_m": REAL_INNER_RADIUS_M,
+        "electrode_center_radius_m": REAL_INNER_RADIUS_M + REAL_ELECTRODE_RADIUS_M,
+        "electrode_potentials_v": [1.0, 1.0, 1.0, 1.0],
+        "outer_boundary_potential_v": 0.0,
+        "minima_sort": "polar angle atan2(y,x) mapped to [0,2*pi)",
+        "reference_row5_used": False,
+    }
+
+
+def _read_progress(path: Path) -> SyntheticGenerationProgress:
+    """Load and minimally validate a JSON checkpoint written by this module."""
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    required = (
+        "requested_n", "completed_attempts", "clean_count", "rejected_count",
+        "ambiguous_branch_count", "solver_failure_count", "last_sample_id", "seed",
+        "updated_at", "elapsed_seconds",
+    )
+    if not all(name in payload for name in required):
+        raise ValueError("progress.json is missing required generation fields")
+    return SyntheticGenerationProgress(
+        **{name: payload[name] for name in required},
+        status_counts={str(key): int(value) for key, value in payload.get("status_counts", {}).items()},
+    )
+
+
+def _progress_from_existing_rows(
+    paths: SyntheticDatasetOutputPaths,
+    config: SyntheticDatasetConfig,
+    elapsed_seconds: float,
+) -> SyntheticGenerationProgress:
+    """Recover an append-safe cursor from the two split CSVs after a hard stop."""
+
+    ids: set[int] = set()
+    statuses: Counter[str] = Counter()
+    for path, expected_columns in ((paths.clean_csv, CLEAN_CSV_COLUMNS), (paths.rejected_csv, REJECTED_CSV_COLUMNS)):
+        _validate_csv_header(path, expected_columns)
+        with path.open(encoding="utf-8", newline="") as stream:
+            for row in csv.DictReader(stream):
+                sample_id = int(row["sample_id"])
+                if sample_id in ids:
+                    raise ValueError("duplicate sample_id found while resuming")
+                ids.add(sample_id)
+                statuses[str(row["status"])] += 1
+    completed = len(ids)
+    if ids != set(range(1, completed + 1)):
+        raise ValueError("resume requires contiguous sample IDs starting at 1")
+    return SyntheticGenerationProgress(
+        requested_n=config.n,
+        completed_attempts=completed,
+        clean_count=statuses.get("clean", 0),
+        rejected_count=completed - statuses.get("clean", 0),
+        ambiguous_branch_count=statuses.get("ambiguous_branch", 0),
+        solver_failure_count=statuses.get("solver_failed", 0),
+        last_sample_id=completed,
+        seed=config.seed,
+        updated_at=_utc_timestamp(),
+        elapsed_seconds=elapsed_seconds,
+        status_counts=dict(statuses),
+    )
+
+
+def _validate_csv_header(path: Path, expected_columns: Sequence[str]) -> None:
+    """Reject an unsafe resume if a split CSV is absent or has a different schema."""
+
+    if not path.is_file():
+        raise FileNotFoundError(f"--resume requires {path.name}")
+    with path.open(encoding="utf-8", newline="") as stream:
+        columns = tuple(csv.DictReader(stream).fieldnames or ())
+    if columns != tuple(expected_columns):
+        raise ValueError(f"{path.name} does not have the expected CSV schema")
+
+
+def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
+    """Write JSON through a same-directory temporary file and atomic replace."""
+
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("w", encoding="utf-8", newline="") as stream:
+        stream.write(json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    temporary.replace(path)
+
+
+def _utc_timestamp() -> str:
+    """Return an unambiguous UTC checkpoint timestamp."""
+
+    return datetime.now(timezone.utc).isoformat()
+
+
 def write_synthetic_dataset(
     result: SyntheticDatasetResult,
     output_directory: str | Path,
@@ -390,12 +812,7 @@ def write_synthetic_dataset(
 
     output = Path(output_directory)
     output.mkdir(parents=True, exist_ok=True)
-    paths = SyntheticDatasetOutputPaths(
-        clean_csv=output / "synthetic_clean.csv",
-        rejected_csv=output / "synthetic_rejected.csv",
-        summary_json=output / "synthetic_summary.json",
-        readme_markdown=output / "README.md",
-    )
+    paths = _output_paths(output)
     _write_csv(
         paths.clean_csv,
         CLEAN_CSV_COLUMNS,
@@ -414,6 +831,23 @@ def write_synthetic_dataset(
     paths.readme_markdown.write_text(
         _dataset_readme(result, summary),
         encoding="utf-8",
+    )
+    statuses = Counter(item.status for item in result.records)
+    _write_json_atomic(
+        paths.progress_json,
+        SyntheticGenerationProgress(
+            requested_n=result.config.n,
+            completed_attempts=len(result.records),
+            clean_count=len(result.clean_records),
+            rejected_count=len(result.rejected_records),
+            ambiguous_branch_count=statuses.get("ambiguous_branch", 0),
+            solver_failure_count=statuses.get("solver_failed", 0),
+            last_sample_id=len(result.records),
+            seed=result.config.seed,
+            updated_at=_utc_timestamp(),
+            elapsed_seconds=result.runtime_seconds,
+            status_counts=dict(statuses),
+        ).to_dict(),
     )
     return paths
 
@@ -639,6 +1073,7 @@ def _summary_record(result: SyntheticDatasetResult) -> dict[str, object]:
         "mesh_mode": result.config.mesh_mode,
         "central_mesh_size_m": PRACTICAL_CENTRAL_MESH_SIZE_M,
         "batch_size": result.config.batch_size,
+        "max_workers": result.config.max_workers,
         "ambiguous_minimum_distance_m": (
             result.config.ambiguous_minimum_distance_m
         ),
@@ -704,6 +1139,7 @@ Counts: clean `{summary['clean_samples']}`, rejected
 
 - `synthetic_clean.csv`: stable 27-column training table.
 - `synthetic_rejected.csv`: the same core fields plus failure/topology audit data.
+- `progress.json`: durable resume cursor and partial-count checkpoint.
 - `synthetic_summary.json`: configuration, counts, convention, and runtimes.
 """
 
@@ -732,14 +1168,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--batch-size",
         type=int,
+        default=500,
+        help="attempts per durable CSV/progress checkpoint",
+    )
+    parser.add_argument(
+        "--max-workers",
+        type=int,
         default=3,
-        help="maximum concurrent fresh FEM subprocesses",
+        help="maximum concurrent fresh FEM subprocesses within one checkpoint batch",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="append from progress.json without repeating completed sample IDs",
     )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Generate the requested bounded dataset and print split statistics."""
+    """Generate checkpointed data and preserve partial output on Ctrl+C."""
 
     arguments = build_parser().parse_args(argv)
     config = SyntheticDatasetConfig(
@@ -748,27 +1195,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_displacement_m=arguments.max_displacement_um * 1.0e-6,
         mesh_mode=arguments.mesh_mode,
         batch_size=arguments.batch_size,
+        max_workers=arguments.max_workers,
         allow_large_n=arguments.allow_large_n,
     )
-    update_stride = max(1, config.n // 20)
 
     def progress(completed: int, total: int, elapsed: float) -> None:
-        if completed == total or completed % update_stride == 0:
-            print(
-                f"completed={completed}/{total} elapsed_seconds={elapsed:.3f}",
-                flush=True,
-            )
+        print(f"completed={completed}/{total} elapsed_seconds={elapsed:.3f}", flush=True)
 
-    result = generate_synthetic_dataset(config, progress_callback=progress)
-    paths = write_synthetic_dataset(result, arguments.output_dir)
-    statuses = Counter(item.status for item in result.records)
+    try:
+        result = generate_synthetic_dataset_incrementally(
+            config,
+            arguments.output_dir,
+            resume=arguments.resume,
+            progress_callback=progress,
+        )
+    except KeyboardInterrupt:
+        print("interrupted before a batch checkpoint; existing durable files remain usable")
+        return 0
+    checkpoint = result.progress
     print(f"requested={config.n}")
-    print(f"clean={len(result.clean_records)}")
-    print(f"rejected={len(result.rejected_records)}")
-    print(f"ambiguous_branch={statuses.get('ambiguous_branch', 0)}")
-    print(f"runtime_seconds={result.runtime_seconds:.3f}")
+    print(f"completed_attempts={checkpoint.completed_attempts}")
+    print(f"clean={checkpoint.clean_count}")
+    print(f"rejected={checkpoint.rejected_count}")
+    print(f"ambiguous_branch={checkpoint.ambiguous_branch_count}")
+    print(f"solver_failures={checkpoint.solver_failure_count}")
+    print(f"runtime_seconds={checkpoint.elapsed_seconds:.3f}")
+    print(f"interrupted={result.interrupted}")
+    paths = result.paths
     print(f"clean_csv={paths.clean_csv}")
     print(f"rejected_csv={paths.rejected_csv}")
+    print(f"progress_json={paths.progress_json}")
     print(f"summary_json={paths.summary_json}")
     print(f"readme={paths.readme_markdown}")
     return 0

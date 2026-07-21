@@ -229,6 +229,20 @@ explicit `--allow-large-n` acknowledgement because practical robust-FEM
 generation may take many hours; the flag does not change any physics, mesh, or
 clean/rejected criteria.
 
+Long generation is checkpointed after each `--batch-size` attempts (default
+500). The clean and rejected CSVs are created immediately and appended at each
+checkpoint, while `progress.json` and a valid partial `synthetic_summary.json`
+are refreshed atomically. Stop with Ctrl+C after a checkpoint, then resume the
+same requested size and seed without duplicating completed IDs:
+
+```powershell
+.venv\Scripts\rf-trap-generate-dataset --n 5000 --seed 20260721 --output-dir validation_results/generated_dataset_5000 --max-displacement-um 500 --allow-large-n --batch-size 500
+.venv\Scripts\rf-trap-generate-dataset --n 5000 --seed 20260721 --output-dir validation_results/generated_dataset_5000 --max-displacement-um 500 --allow-large-n --batch-size 500 --resume
+```
+
+`--batch-size` is the durable checkpoint interval; `--max-workers` (default
+3) independently limits concurrent fresh FEM subprocesses.
+
 The focused Wolfram-convention validation reduced the nine non-outlier rows to
 0.04722 mm mean error and 0.12833 mm maximum error. `Data.txt` row 5 is retained
 as a documented branch/topology ambiguity and is not used as a training row.
