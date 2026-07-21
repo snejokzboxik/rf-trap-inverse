@@ -1,0 +1,49 @@
+{
+  "ambiguous_branch_count": 0,
+  "ambiguous_minimum_distance_m": 0.00015,
+  "batch_size": 6,
+  "central_mesh_size_m": 0.0005,
+  "clean_rejected_candidate_maximum": 9,
+  "clean_rejected_candidate_total": 119,
+  "clean_rows_with_rejected_candidates": 87,
+  "clean_samples": 1000,
+  "completed_samples": 1000,
+  "coordinate_units": "metres",
+  "electrode_center_radius_m": 0.02148,
+  "electrode_potentials_v": [
+    1.0,
+    1.0,
+    1.0,
+    1.0
+  ],
+  "electrode_radius_m": 0.01,
+  "fem_electrode_order": [
+    "F1 upper-left",
+    "F2 upper-right",
+    "F3 lower-left",
+    "F4 lower-right"
+  ],
+  "inner_radius_to_surface_m": 0.01148,
+  "max_displacement_m": 0.0005,
+  "max_displacement_um": 500.0,
+  "mesh_mode": "practical",
+  "minima_sort": "polar angle atan2(y,x) mapped to [0,2*pi)",
+  "outer_boundary_potential_v": 0.0,
+  "outer_boundary_radius_m": 0.05,
+  "raw_electrode_order": [
+    "W1 upper-right",
+    "W2 lower-right",
+    "W3 upper-left",
+    "W4 lower-left"
+  ],
+  "reference_row5_used": false,
+  "rejected_samples": 0,
+  "requested_samples": 1000,
+  "seed": 123,
+  "status_counts": {
+    "clean": 1000
+  },
+  "summed_worker_runtime_seconds": 6254.816538899948,
+  "wall_runtime_seconds": 1609.2157073999988,
+  "wolfram_to_fem_transform": "[-W3, -W1, -W4, -W2]"
+}

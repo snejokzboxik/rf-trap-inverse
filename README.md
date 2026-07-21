@@ -1,4 +1,4 @@
-# RF trap forward model and reference benchmarking — milestone 9
+# RF trap forward model, reference benchmarking, and bounded dataset generation
 
 This repository implements one reproducible 2D forward-model pipeline for four
 infinitely long, equal-phase cylindrical electrodes.  Given the six Cartesian
@@ -83,6 +83,8 @@ python -m venv .venv
 .venv\Scripts\rf-trap-robust-minima-validation
 .venv\Scripts\rf-trap-calibrated-validation --resume-interrupted-local
 .venv\Scripts\rf-trap-absolute-displacement-check
+.venv\Scripts\rf-trap-wolfram-convention-check
+.venv\Scripts\rf-trap-generate-dataset --n 100 --seed 123
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
@@ -205,5 +207,21 @@ and E1,E3,E2,E4 mappings. It passes the raw four displacement pairs directly to
 the absolute geometry builder; no calibration or refinement sweep is involved.
 Outputs are written under `validation_results/absolute_displacement_check`.
 
-This milestone intentionally contains no ML, inverse model, or synthetic dataset
-generator.
+`rf-trap-wolfram-convention-check` reuses those two raw-absolute baselines and
+runs only the Wolfram mapping `-[W3,W1,W4,W2]` on rows 1--10. Its compact
+comparison is written under `validation_results/wolfram_convention_check`.
+
+`rf-trap-generate-dataset` samples absolute displacement pairs in Wolfram order,
+applies `F1,F2,F3,F4 = -[W3,W1,W4,W2]`, and runs the real-scale all-positive
+model with the practical 500 um central mesh and robust minima mode. Outputs are
+polar-angle sorted in absolute geometric-centre coordinates. A clean sample
+must have exactly three robust-accepted candidates and at least 0.15 mm between
+every pair of minima. Solver failures, invalid geometry, other topology, and
+closer `ambiguous_branch` cases are preserved in `synthetic_rejected.csv` and
+never enter `synthetic_clean.csv`. The generator is capped at 1000 requested
+samples until a larger run is explicitly authorized.
+
+The focused Wolfram-convention validation reduced the nine non-outlier rows to
+0.04722 mm mean error and 0.12833 mm maximum error. `Data.txt` row 5 is retained
+as a documented branch/topology ambiguity and is not used as a training row.
+No ML or inverse model is implemented here.

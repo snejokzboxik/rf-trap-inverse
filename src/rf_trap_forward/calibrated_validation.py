@@ -197,6 +197,7 @@ class CalibrationCase:
     geometry: GeometryVariant
     voltage: VoltageModel
     electrode_mapping: tuple[int, int, int, int] = BEST_KNOWN_MAPPING
+    displacement_sign: float = 1.0
     output_transform: OutputTransform = OutputTransform()
 
     def __post_init__(self) -> None:
@@ -204,6 +205,8 @@ class CalibrationCase:
 
         if not self.name or not self.family:
             raise ValueError("calibration case names must not be empty")
+        if self.displacement_sign not in (-1.0, 1.0):
+            raise ValueError("displacement_sign must be -1 or +1")
         ReferenceValidationVariant(
             name=self.name,
             electrode_permutation=self.electrode_mapping,
@@ -714,7 +717,7 @@ def evaluate_calibration_case(
     for row_number in selected_rows:
         index = row_number - 1
         solver_displacements, reference, row_config = prepare_reference_row_inputs(
-            dataset.raw_displacements_m[index],
+            case.displacement_sign * dataset.raw_displacements_m[index],
             dataset.raw_minima_absolute_m[index],
             config,
             variant,

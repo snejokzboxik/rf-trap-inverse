@@ -105,8 +105,11 @@ class ReferenceValidationVariant:
             raise ValueError("variant name must not be empty")
         if self.displacement_mode not in ("electrode1-relative", "absolute"):
             raise ValueError("unsupported displacement_mode")
-        if self.electrode_permutation[0] != 1:
-            raise ValueError("electrode 1 must remain the reference electrode")
+        if (
+            self.displacement_mode == "electrode1-relative"
+            and self.electrode_permutation[0] != 1
+        ):
+            raise ValueError("electrode 1 must remain first in relative mode")
         if sorted(self.electrode_permutation) != [1, 2, 3, 4]:
             raise ValueError("electrode_permutation must contain 1, 2, 3, 4 once")
         if not self.polarity_name:
