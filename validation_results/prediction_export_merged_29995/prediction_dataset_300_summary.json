@@ -1,0 +1,30 @@
+{
+  "coordinate_error_sign": "predicted minus true",
+  "coordinate_mae_um": 101.63793436898256,
+  "coordinate_max_absolute_error_um": 434.3476877723926,
+  "coordinate_rmse_um": 128.7333778465172,
+  "dataset_path": "validation_results\\generated_dataset_merged_29995\\synthetic_clean_ml.csv",
+  "electrode_order": [
+    "W1 upper-right",
+    "W2 lower-right",
+    "W3 upper-left",
+    "W4 lower-left"
+  ],
+  "electrode_vector_error_max_um": 460.5718293613434,
+  "electrode_vector_error_mean_um": 160.31652654540545,
+  "electrode_vector_error_median_um": 149.2706755285037,
+  "electrode_vector_error_p95_um": 321.62149622719124,
+  "evaluation_scope": "random source rows; not guaranteed held-out",
+  "finite_values": true,
+  "inference_only": true,
+  "model_path": "validation_results\\inverse_model_merged_29995\\mlp.joblib",
+  "predicted_coordinates_outside_500_um": 10,
+  "random_state": 20260725,
+  "row_count": 300,
+  "row_mae_max_um": 318.2996900968234,
+  "row_mae_mean_um": 101.63793436898256,
+  "row_mae_median_um": 92.27469224878504,
+  "row_mae_p95_um": 199.44395168524758,
+  "selection": "uniform sample without replacement, sorted by source row index",
+  "wolfram_to_fem_transform": "[-W3, -W1, -W4, -W2]"
+}
