@@ -37,6 +37,16 @@ the N=20000 N=100 closed-loop mean by about 21.4%. See
 filters, duplicate checks, model comparisons, and caveats. The prior
 [N20000_RESULTS.md](N20000_RESULTS.md) remains the unmerged benchmark.
 
+## Current analysis reports
+
+- [MERGED_DATASET_29995_RESULTS.md](MERGED_DATASET_29995_RESULTS.md): merged
+  provenance, QA, inverse training, and N=100 closed-loop comparison.
+- [ERROR_ANALYSIS_MERGED_29995.md](ERROR_ANALYSIS_MERGED_29995.md): per-output
+  and per-electrode errors, closed-loop tails, worst cases, and descriptive
+  error relationships.
+- [LEARNING_CURVE_MERGED_29995.md](LEARNING_CURVE_MERGED_29995.md): fixed-test
+  MLP learning curve from N=1000 through N=29995.
+
 ## Next steps
 
 1. Extend validation with larger deterministic held-out closed-loop subsets and

@@ -1,0 +1,96 @@
+{
+  "closed_loop_cases": 100,
+  "closed_loop_exactly_three_count": 100,
+  "closed_loop_matched_minima": 300,
+  "closed_loop_maximum_error_um": 373.95228510353786,
+  "closed_loop_mean_error_um": 75.73103912470623,
+  "closed_loop_median_error_um": 66.53042956131645,
+  "closed_loop_p95_error_um": 163.04385019808842,
+  "closed_loop_status_counts": {
+    "ok": 100
+  },
+  "hardest_coordinate": {
+    "component": "dy",
+    "coordinate": "w1_dy",
+    "count": 5999,
+    "electrode": "W1",
+    "mae_um": 105.43338294421929,
+    "max_absolute_error_um": 488.9020996489691,
+    "median_absolute_error_um": 85.94004314473744,
+    "p95_absolute_error_um": 273.54009750172384,
+    "rmse_um": 134.94135902566015,
+    "signed_mean_error_um": -3.163166040124092,
+    "signed_std_error_um": 134.9042799776742
+  },
+  "hardest_electrode": {
+    "count": 5999,
+    "dx_mae_um": 103.17586350385817,
+    "dx_signed_bias_um": -4.077727626515785,
+    "dy_mae_um": 105.43338294421929,
+    "dy_signed_bias_um": -3.163166040124092,
+    "electrode": "W1",
+    "max_vector_error_um": 537.2596450858598,
+    "mean_coordinate_absolute_error_um": 104.30462322403874,
+    "mean_vector_error_um": 165.0896134316197,
+    "median_vector_error_um": 153.87710831075128,
+    "p95_vector_error_um": 331.8559596790676,
+    "rmse_vector_error_um": 188.24481843804455
+  },
+  "maximum_stored_error_discrepancy_um": 0.0,
+  "model": "mlp",
+  "prediction_absolute_error_over_200_um_count": 6491,
+  "prediction_absolute_error_over_300_um_count": 1331,
+  "prediction_absolute_error_p95_um": 267.2773358586766,
+  "prediction_coordinate_errors": 47992,
+  "prediction_maximum_absolute_error_um": 542.9114774944874,
+  "prediction_overall_mae_um": 103.79246696615094,
+  "prediction_overall_rmse_um": 132.48598090063643,
+  "prediction_rows": 5999,
+  "relationships": [
+    {
+      "count": 100,
+      "linear_intercept_um": 32.72380920209561,
+      "linear_slope_response_um_per_predictor_unit": 0.052462674854825635,
+      "pearson_p_value": 0.053641919400771086,
+      "pearson_r": 0.1935759866405437,
+      "predictor": "true_displacement_norm_um",
+      "predictor_unit": "um",
+      "response": "row_mean_error_um",
+      "spearman_p_value": 0.164555490962568,
+      "spearman_rho": 0.14006600660066004
+    },
+    {
+      "count": 100,
+      "linear_intercept_um": 171.34864213874658,
+      "linear_slope_response_um_per_predictor_unit": -17.686250121983868,
+      "pearson_p_value": 2.6312229316723567e-10,
+      "pearson_r": -0.5796530908012795,
+      "predictor": "min_pairwise_distance_mm",
+      "predictor_unit": "mm",
+      "response": "row_mean_error_um",
+      "spearman_p_value": 6.409879927851428e-08,
+      "spearman_rho": -0.5089588958895889
+    },
+    {
+      "count": 100,
+      "linear_intercept_um": 145.18588009719835,
+      "linear_slope_response_um_per_predictor_unit": -16.384804547660412,
+      "pearson_p_value": 0.0032560710670832323,
+      "pearson_r": -0.29149341666498985,
+      "predictor": "max_absolute_minimum_coordinate_mm",
+      "predictor_unit": "mm",
+      "response": "row_mean_error_um",
+      "spearman_p_value": 0.11300492426718746,
+      "spearman_rho": -0.15947194719471944
+    }
+  ],
+  "sources": {
+    "closed_loop_results_csv": "validation_results\\closed_loop_inverse_merged_29995_n100\\closed_loop_results.csv",
+    "merged_dataset_csv": "validation_results\\generated_dataset_merged_29995\\synthetic_clean_ml.csv",
+    "test_predictions_csv": "validation_results\\inverse_model_merged_29995\\test_predictions.csv"
+  },
+  "units": {
+    "displacement_error": "micrometres",
+    "positions": "metres"
+  }
+}

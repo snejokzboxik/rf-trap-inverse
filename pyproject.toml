@@ -37,6 +37,8 @@ rf-trap-closed-loop-inverse = "rf_trap_forward.closed_loop_inverse:main"
 rf-trap-train-inverse-v2 = "rf_trap_forward.inverse_training_v2:main"
 rf-trap-compare-closed-loop-inverse = "rf_trap_forward.closed_loop_comparison:main"
 rf-trap-merge-datasets = "rf_trap_forward.merge_datasets:main"
+rf-trap-error-analysis = "rf_trap_forward.error_analysis:main"
+rf-trap-learning-curve = "rf_trap_forward.learning_curve:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8.3,<10"]
