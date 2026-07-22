@@ -1,5 +1,18 @@
 # RF trap forward model, reference benchmarking, and baseline inverse modelling
 
+## Current result
+
+The current preferred inverse is the merged N=29995 MLP. Its deterministic
+N=100 closed-loop FEM validation achieved **75.73 um mean** and **163.04 um
+p95** matched-minimum error, with valid three-minimum topology in 100/100 cases
+and zero solver failures. See [PROJECT_STATUS.md](docs/PROJECT_STATUS.md) for the
+concise project overview and
+[MERGED_DATASET_29995_RESULTS.md](docs/MERGED_DATASET_29995_RESULTS.md) for the
+full dataset, QA, training, and closed-loop comparison.
+
+The installation and principal CLI commands are listed under **Install and
+run** below; every command also supports `--help`.
+
 This repository implements one reproducible 2D forward-model pipeline for four
 infinitely long, equal-phase cylindrical electrodes.  Given the six Cartesian
 displacements of electrodes 2–4, it:
@@ -91,6 +104,7 @@ python -m venv .venv
 .venv\Scripts\rf-trap-closed-loop-inverse --n 20
 .venv\Scripts\rf-trap-train-inverse-v2
 .venv\Scripts\rf-trap-compare-closed-loop-inverse --n 20
+.venv\Scripts\rf-trap-merge-datasets --help
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at

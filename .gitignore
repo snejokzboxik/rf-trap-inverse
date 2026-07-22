@@ -3,6 +3,23 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest_tmp/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
 build/
 dist/
 *.egg-info/
+*.log
+*.tmp
+*.bak
+.scratch/
+scratch/
+tmp/
+local_outputs/
+random_forest.joblib
+
+# Auxiliary overlapping source data retained locally, not primary Git results.
+/validation_results/generated_dataset_10000/
+/validation_results/generated_dataset_10000_qa/

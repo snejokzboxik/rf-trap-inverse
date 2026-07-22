@@ -32,7 +32,10 @@ The best learned model reduces coordinate MAE by **58.09%** relative to the trai
 
 ## Saved models and plots
 
-- `ridge.joblib`, `random_forest.joblib`, and `mlp.joblib` include preprocessing where applicable.
+- `ridge.joblib` and `mlp.joblib` include preprocessing where applicable.
+- Random-forest metrics remain in the CSV reports, but
+  `random_forest.joblib` is intentionally omitted because random forest was
+  not the best model and its artifact was unnecessarily large.
 - `plots/predicted_vs_true.png`
 - `plots/coordinate_error_histogram.png`
 - `plots/electrode_vector_error.png`
