@@ -25,6 +25,21 @@ The six inputs are three deterministic, polar-angle-sorted minimum positions:
 
 `min1_x_m,min1_y_m,min2_x_m,min2_y_m,min3_x_m,min3_y_m`
 
+### Canonical minima ordering
+
+The ordering is inherited from the existing forward/minima and synthetic-data
+pipeline, not chosen by the prediction interface: points are sorted by
+increasing `atan2(y, x)` after wrapping the angle into `[0, 2*pi)`. This is the
+same `sort_points_by_polar_angle` helper used when writing synthetic minima and
+when ordering recomputed minima in closed-loop validation. Direct, CSV, and GUI
+inputs are auto-sorted by this rule before prediction by default. The terminal
+output and GUI show the ordered coordinates used by the model.
+
+Use `--no-sort-minima` on the CLI, or clear “Auto-sort minima before prediction”
+in the GUI, only when the input is already known to be in the training order.
+Arbitrary manual ordering changes the six-feature vector and can therefore
+change the predicted displacements.
+
 The CLI accepts direct values in metres (`--units m`) or millimetres
 (`--units mm`) and always converts to metres before inference. CSV inputs use
 the same canonical six-column header. Normally their values are metres; pass
@@ -63,6 +78,9 @@ Millimetres:
 python -m rf_trap_forward.predict_inverse --minima "-1.596,3.869;-1.836,-3.034;4.218,-1.076" --units mm
 ```
 
+To inspect the effect of preserving the supplied order, add
+`--no-sort-minima`.
+
 Choose the closed-loop-best N=29995 model explicitly with:
 
 ```powershell
@@ -88,9 +106,11 @@ python app_inverse_model_tk.py
 
 The GUI uses N=51974 by default, permits selecting another `.joblib` file,
 accepts six direct coordinates in metres or millimetres, loads batch CSV input,
-displays Wolfram and FEM vectors in micrometres, and saves the current single or
-batch prediction to CSV. Loading a CSV predicts all rows and displays the first
-five rows in the text panel.
+auto-sorts minima with the canonical pipeline rule, displays Wolfram and FEM
+vectors in micrometres, and saves the current single or batch prediction to CSV.
+The output panel is selectable, supports Ctrl+C, and has a Copy output button.
+Loading a CSV predicts all rows and displays the first five rows in the text
+panel.
 
 ## Limitations
 

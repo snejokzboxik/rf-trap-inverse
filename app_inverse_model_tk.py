@@ -21,6 +21,21 @@ from rf_trap_forward.predict_inverse import (
 )
 
 
+def copy_text_to_clipboard(
+    clipboard_clear: object,
+    clipboard_append: object,
+    text: str,
+) -> None:
+    """Copy text through Tk-compatible clipboard callbacks.
+
+    Keeping this tiny operation outside the window class makes the copy behavior
+    testable without opening a desktop window.
+    """
+
+    clipboard_clear()
+    clipboard_append(text)
+
+
 class InverseModelApp(ttk.Frame):
     """Small model-only desktop prediction form with CSV batch support."""
 
@@ -29,6 +44,7 @@ class InverseModelApp(ttk.Frame):
         self.master = master
         self.model_path = tk.StringVar(value=str(DEFAULT_MODEL_PATH))
         self.units = tk.StringVar(value="m")
+        self.auto_sort_minima = tk.BooleanVar(value=True)
         self.coordinate_values = [tk.StringVar() for _ in INPUT_COLUMNS]
         self.current_prediction: InversePredictionBatch | None = None
         self.status = tk.StringVar(value="Ready. No FEM solve or training is performed.")
@@ -76,6 +92,11 @@ class InverseModelApp(ttk.Frame):
             state="readonly",
             width=8,
         ).grid(row=1, column=4, padx=4)
+        ttk.Checkbutton(
+            minima,
+            text="Auto-sort minima before prediction",
+            variable=self.auto_sort_minima,
+        ).grid(row=4, column=1, columnspan=4, padx=4, pady=(8, 0), sticky="w")
 
         controls = ttk.Frame(self)
         controls.grid(row=3, column=0, columnspan=3, sticky="w", pady=(0, 8))
@@ -87,6 +108,9 @@ class InverseModelApp(ttk.Frame):
         )
         ttk.Button(controls, text="Save prediction CSV...", command=self.save_csv).grid(
             row=0, column=2, padx=8
+        )
+        ttk.Button(controls, text="Copy output", command=self.copy_output).grid(
+            row=0, column=3, padx=8
         )
 
         explanation = (
@@ -102,8 +126,12 @@ class InverseModelApp(ttk.Frame):
         ttk.Label(self, text="Prediction output:").grid(
             row=6, column=0, columnspan=3, sticky="w"
         )
-        self.output = tk.Text(self, height=22, wrap="none", font=("Consolas", 10))
+        self.output = tk.Text(
+            self, height=22, wrap="none", font=("Consolas", 10), takefocus=True
+        )
         self.output.grid(row=7, column=0, columnspan=3, sticky="nsew")
+        self.output.bind("<Control-Key-c>", self._copy_selected_output)
+        self.output.bind("<Control-Key-C>", self._copy_selected_output)
 
     def choose_model(self) -> None:
         path = filedialog.askopenfilename(
@@ -134,10 +162,10 @@ class InverseModelApp(ttk.Frame):
             return
         try:
             minima_m = load_minima_csv(path, self.units.get())
-            self._show_first_input(minima_m[0])
             self._run_prediction(minima_m)
             self.status.set(
                 f"Loaded and predicted {minima_m.shape[0]} row(s) from {path}. "
+                f"Auto-sort minima: {'enabled' if self.auto_sort_minima.get() else 'disabled'}. "
                 "The output view shows at most five rows."
             )
         except Exception as error:
@@ -146,24 +174,62 @@ class InverseModelApp(ttk.Frame):
     def _show_first_input(self, minima_row_m: np.ndarray) -> None:
         scale = 1.0 if self.units.get() == "m" else 1.0e3
         for variable, value in zip(
-            self.coordinate_values, scale * minima_row_m, strict=True
+            self.coordinate_values, scale * np.asarray(minima_row_m).reshape(6), strict=True
         ):
             variable.set(f"{value:.12g}")
 
     def _run_prediction(self, minima_m: object) -> None:
         model = load_prediction_model(Path(self.model_path.get()))
-        self.current_prediction = predict_inverse(model, minima_m)
+        self.current_prediction = predict_inverse(
+            model, minima_m, sort_minima=self.auto_sort_minima.get()
+        )
+        self._show_first_input(self.current_prediction.minima_m[0])
         text = format_prediction_text(self.current_prediction)
         self.output.delete("1.0", tk.END)
         self.output.insert(tk.END, text)
         warning_count = sum(bool(item) for item in self.current_prediction.warnings)
+        sort_label = "enabled" if self.current_prediction.auto_sort_enabled else "disabled"
         if warning_count:
             self.status.set(
-                f"Prediction complete: {warning_count} row(s) exceed the +/-500 um "
-                "training range."
+                f"Prediction complete; auto-sort minima: {sort_label}. "
+                f"{warning_count} row(s) exceed the +/-500 um training range."
             )
         else:
-            self.status.set("Prediction complete; all displacement coordinates are within +/-500 um.")
+            self.status.set(
+                "Prediction complete; "
+                f"auto-sort minima: {sort_label}; all displacement coordinates are "
+                "within +/-500 um."
+            )
+
+    def _copy_selected_output(self, _event: object = None) -> str:
+        """Copy the selected output text for the standard Ctrl+C shortcut."""
+
+        try:
+            selected = self.output.get(tk.SEL_FIRST, tk.SEL_LAST)
+        except tk.TclError:
+            return "break"
+        copy_text_to_clipboard(
+            self.master.clipboard_clear,
+            self.master.clipboard_append,
+            selected,
+        )
+        self.master.update()
+        return "break"
+
+    def copy_output(self) -> None:
+        """Copy the complete prediction output to the clipboard."""
+
+        text = self.output.get("1.0", tk.END).rstrip("\n")
+        if not text:
+            messagebox.showinfo("Nothing to copy", "Run a prediction first.")
+            return
+        copy_text_to_clipboard(
+            self.master.clipboard_clear,
+            self.master.clipboard_append,
+            text,
+        )
+        self.master.update()
+        self.status.set("Copied full prediction output to clipboard.")
 
     def save_csv(self) -> None:
         if self.current_prediction is None:

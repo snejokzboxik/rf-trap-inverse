@@ -110,6 +110,10 @@ python -m rf_trap_forward.predict_inverse --minima "-1.596,3.869;-1.836,-3.034;4
 python app_inverse_model_tk.py
 ```
 
+Prediction inputs are auto-sorted by the same polar-angle convention used by
+the training/minima pipeline; see [docs/USING_INVERSE_MODEL.md](docs/USING_INVERSE_MODEL.md)
+for `--no-sort-minima`, CSV, and GUI details.
+
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
 outer radii of 3.5, 4.0, and 5.0 mm. It writes:
 

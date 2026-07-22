@@ -12,6 +12,7 @@ from typing import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+from .dataset import sort_points_by_polar_angle
 from .export_prediction_dataset import load_prediction_model
 from .inverse_training import INPUT_COLUMNS, MICROMETRES_PER_METRE, TARGET_COLUMNS
 
@@ -68,6 +69,8 @@ class InversePredictionBatch:
     wolfram_displacements_m: NDArray[np.float64]
     fem_displacements_m: NDArray[np.float64]
     warnings: tuple[str, ...]
+    auto_sort_enabled: bool
+    sorting_applied: tuple[bool, ...]
 
     def __post_init__(self) -> None:
         count = self.minima_m.shape[0]
@@ -84,6 +87,8 @@ class InversePredictionBatch:
                 raise ValueError(f"{name} must contain only finite values")
         if len(self.warnings) != count:
             raise ValueError("warnings must contain one value per prediction row")
+        if len(self.sorting_applied) != count:
+            raise ValueError("sorting_applied must contain one value per prediction row")
 
 
 def convert_minima_to_metres(values: object, units: str) -> NDArray[np.float64]:
@@ -113,6 +118,22 @@ def parse_minima_string(value: str, units: str = "m") -> NDArray[np.float64]:
         except ValueError as error:
             raise ValueError("minimum coordinates must be numeric") from error
     return convert_minima_to_metres(coordinates, units).reshape(3, 2)
+
+
+def canonical_order_minima(points: object) -> NDArray[np.float64]:
+    """Return three minima in the training pipeline's canonical order.
+
+    The forward and synthetic-data pipelines use :func:`sort_points_by_polar_angle`:
+    increasing ``atan2(y, x)`` after wrapping angles into ``[0, 2*pi)``. Reusing
+    that helper here keeps interactive predictions aligned with the training labels.
+    """
+
+    array = np.asarray(points, dtype=float)
+    if array.shape != (3, 2):
+        raise ValueError("points must have shape (3, 2)")
+    if not np.all(np.isfinite(array)):
+        raise ValueError("points must contain only finite values")
+    return np.asarray(sort_points_by_polar_angle(array), dtype=float)
 
 
 def wolfram_to_fem_displacements_m(values: object) -> NDArray[np.float64]:
@@ -159,10 +180,23 @@ def load_minima_csv(path: str | Path, units: str = "m") -> NDArray[np.float64]:
 def predict_inverse(
     model: object,
     minima_m: object,
+    *,
+    sort_minima: bool = True,
 ) -> InversePredictionBatch:
-    """Predict Wolfram displacements and derive the documented FEM-order vector."""
+    """Predict displacements after optional canonical minima ordering."""
 
     minima = _minima_rows(minima_m)
+    original_minima = minima.reshape(-1, 3, 2)
+    if sort_minima:
+        minima = np.asarray(
+            [canonical_order_minima(row) for row in original_minima], dtype=float
+        ).reshape(-1, 6)
+    sorting_applied = tuple(
+        not np.array_equal(before, after)
+        for before, after in zip(
+            original_minima, minima.reshape(-1, 3, 2), strict=True
+        )
+    )
     prediction = np.asarray(model.predict(minima), dtype=float)
     expected_shape = (minima.shape[0], 8)
     if prediction.shape != expected_shape:
@@ -173,7 +207,14 @@ def predict_inverse(
         raise ValueError("model predictions contain NaN or infinite values")
     fem = wolfram_to_fem_displacements_m(prediction)
     warnings = tuple(_range_warning(row) for row in prediction)
-    return InversePredictionBatch(minima, prediction, fem, warnings)
+    return InversePredictionBatch(
+        minima,
+        prediction,
+        fem,
+        warnings,
+        bool(sort_minima),
+        sorting_applied,
+    )
 
 
 def write_prediction_csv(
@@ -243,11 +284,23 @@ def _range_warning(wolfram_row_m: NDArray[np.float64]) -> str:
 def format_prediction_text(prediction: InversePredictionBatch) -> str:
     """Format one or more predictions for terminal or GUI display."""
 
-    lines = [f"Prediction rows: {prediction.minima_m.shape[0]}"]
+    sorting_label = "enabled" if prediction.auto_sort_enabled else "disabled"
+    lines = [
+        f"Prediction rows: {prediction.minima_m.shape[0]}",
+        f"Auto-sort minima: {sorting_label}",
+        "Canonical order: increasing polar angle atan2(y, x) wrapped to [0, 2*pi).",
+    ]
     display_rows = min(prediction.minima_m.shape[0], 5)
     for row_index in range(display_rows):
         if prediction.minima_m.shape[0] > 1:
             lines.extend(("", f"Row {row_index + 1}:"))
+        lines.append("Ordered minima used by model (m):")
+        for minimum_index, pair in enumerate(
+            prediction.minima_m[row_index].reshape(3, 2), start=1
+        ):
+            lines.append(
+                f"  min{minimum_index}: x={pair[0]:.12g}, y={pair[1]:.12g}"
+            )
         wolfram_um = (
             MICROMETRES_PER_METRE
             * prediction.wolfram_displacements_m[row_index].reshape(4, 2)
@@ -282,6 +335,11 @@ def build_parser() -> argparse.ArgumentParser:
     inputs.add_argument("--input-csv", type=Path)
     parser.add_argument("--output-csv", type=Path)
     parser.add_argument("--units", choices=tuple(UNIT_SCALE_TO_METRES), default="m")
+    parser.add_argument(
+        "--no-sort-minima",
+        action="store_true",
+        help="disable the pipeline's canonical polar-angle minima ordering",
+    )
     return parser
 
 
@@ -309,7 +367,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else load_minima_csv(arguments.input_csv, arguments.units)
     )
     model = load_prediction_model(arguments.model)
-    prediction = predict_inverse(model, minima_m)
+    prediction = predict_inverse(model, minima_m, sort_minima=not arguments.no_sort_minima)
     print(format_prediction_text(prediction))
     if arguments.output_csv is not None:
         path = write_prediction_csv(prediction, arguments.output_csv)
