@@ -1,14 +1,15 @@
-# RF trap forward model, reference benchmarking, and baseline inverse modelling
+# RF trap forward model, reference benchmarking, and inverse modelling
 
 ## Current result
 
-The current preferred inverse is the merged N=29995 MLP. Its deterministic
-N=100 closed-loop FEM validation achieved **75.73 um mean** and **163.04 um
-p95** matched-minimum error, with valid three-minimum topology in 100/100 cases
-and zero solver failures. See [PROJECT_STATUS.md](docs/PROJECT_STATUS.md) for the
-concise project overview and
-[MERGED_DATASET_29995_RESULTS.md](docs/MERGED_DATASET_29995_RESULTS.md) for the
-full dataset, QA, training, and closed-loop comparison.
+The normal prediction default is the merged N=51974 MLP because it is the
+latest/largest model and has the best ordinary held-out regression MAE. The
+merged N=29995 MLP retains the best observed closed-loop headline result:
+**75.73 um mean** and **163.04 um p95**, with valid three-minimum topology in
+100/100 cases and zero solver failures. See
+[PROJECT_STATUS.md](docs/PROJECT_STATUS.md) for the concise overview and
+[USING_INVERSE_MODEL.md](docs/USING_INVERSE_MODEL.md) for prediction commands,
+electrode order, units, GUI usage, and limitations.
 
 The installation and principal CLI commands are listed under **Install and
 run** below; every command also supports `--help`.
@@ -105,6 +106,8 @@ python -m venv .venv
 .venv\Scripts\rf-trap-train-inverse-v2
 .venv\Scripts\rf-trap-compare-closed-loop-inverse --n 20
 .venv\Scripts\rf-trap-merge-datasets --help
+python -m rf_trap_forward.predict_inverse --minima "-1.596,3.869;-1.836,-3.034;4.218,-1.076" --units mm
+python app_inverse_model_tk.py
 ```
 
 The default convergence command evaluates mesh sizes of 120, 80, and 60 µm at
