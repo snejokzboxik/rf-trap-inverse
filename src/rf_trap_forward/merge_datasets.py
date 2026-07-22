@@ -32,6 +32,7 @@ class MergeSource:
     directory: Path
     min_sample_id: int | None = None
     max_sample_id: int | None = None
+    clean_filename: str = "synthetic_clean.csv"
 
     def __post_init__(self) -> None:
         """Reject an invalid requested source-ID interval."""
@@ -44,6 +45,8 @@ class MergeSource:
             and self.min_sample_id > self.max_sample_id
         ):
             raise ValueError("min_sample_id cannot exceed max_sample_id")
+        if Path(self.clean_filename).name != self.clean_filename:
+            raise ValueError("clean_filename must be a file name, not a path")
 
 
 @dataclass(frozen=True)
@@ -71,10 +74,11 @@ def merge_clean_datasets(sources: Sequence[MergeSource]) -> MergedDatasetResult:
     duplicate_inputs = 0
     duplicate_pairs = 0
     for source in sources:
-        clean_path = source.directory / "synthetic_clean.csv"
+        clean_path = source.directory / source.clean_filename
         seed = _source_seed(source.directory)
         rows = _read_clean_rows(clean_path)
         included = 0
+        included_seeds: set[int] = set()
         for row in rows:
             source_id = int(row["sample_id"])
             if source.min_sample_id is not None and source_id < source.min_sample_id:
@@ -92,10 +96,13 @@ def merge_clean_datasets(sources: Sequence[MergeSource]) -> MergedDatasetResult:
                 duplicate_inputs += 1
             input_keys.add(input_key)
             merged_id = len(metadata_rows) + 1
+            row_seed = _row_seed(row, seed)
+            if row_seed is not None:
+                included_seeds.add(row_seed)
             metadata = {
                 "merged_sample_id": str(merged_id),
                 "source_dataset": source_name,
-                "source_seed": "" if seed is None else str(seed),
+                "source_seed": "" if row_seed is None else str(row_seed),
                 "source_sample_id": str(source_id),
                 **{column: row[column] for column in MERGED_DATA_COLUMNS},
             }
@@ -107,7 +114,9 @@ def merge_clean_datasets(sources: Sequence[MergeSource]) -> MergedDatasetResult:
             {
                 "source_dataset": source.directory.name,
                 "source_directory": str(source.directory),
+                "source_clean_file": source.clean_filename,
                 "source_seed": seed,
+                "source_seeds": sorted(included_seeds),
                 "min_sample_id": source.min_sample_id,
                 "max_sample_id": source.max_sample_id,
                 "included_clean_rows": included,
@@ -196,6 +205,15 @@ def _source_seed(directory: Path) -> int | None:
     return int(value) if value is not None else None
 
 
+def _row_seed(row: dict[str, str], fallback: int | None) -> int | None:
+    """Use summary seed, or row seed for a mixed-seed prior merged ML view."""
+
+    if fallback is not None:
+        return fallback
+    value = row.get("seed", "").strip()
+    return int(value) if value else None
+
+
 def _write_csv(path: Path, columns: Sequence[str], rows: Sequence[dict[str, str]]) -> None:
     """Write a stable CSV schema and rows in deterministic merge order."""
 
@@ -213,7 +231,7 @@ def _readme(summary: dict[str, object]) -> str:
         source_lines.append(
             f"- `{source['source_dataset']}`: {source['included_clean_rows']} rows; "
             f"source sample IDs {source['min_sample_id'] or 'all'}..{source['max_sample_id'] or 'all'}; "
-            f"seed {source['source_seed']}."
+            f"input `{source['source_clean_file']}`; seeds {source['source_seeds']}."
         )
     return "\n".join((
         "# Merged synthetic RF-trap dataset", "",
@@ -238,6 +256,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--source", type=Path, action="append", required=True)
     parser.add_argument(
+        "--clean-file", action="append", default=[],
+        help="clean CSV file name per --source (default: synthetic_clean.csv)",
+    )
+    parser.add_argument(
         "--min-sample-id", type=int, action="append", default=[],
         help="optional inclusive minimum source ID per --source, in source order",
     )
@@ -258,10 +280,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("--min-sample-id must be omitted or supplied once per --source")
     if len(arguments.max_sample_id) not in (0, source_count):
         raise ValueError("--max-sample-id must be omitted or supplied once per --source")
+    if len(arguments.clean_file) not in (0, source_count):
+        raise ValueError("--clean-file must be omitted or supplied once per --source")
     minimums = arguments.min_sample_id or [None] * source_count
     maximums = arguments.max_sample_id or [None] * source_count
+    clean_files = arguments.clean_file or ["synthetic_clean.csv"] * source_count
     result = merge_clean_datasets(
-        tuple(MergeSource(path, minimum, maximum) for path, minimum, maximum in zip(arguments.source, minimums, maximums, strict=True))
+        tuple(
+            MergeSource(path, minimum, maximum, clean_file)
+            for path, minimum, maximum, clean_file in zip(
+                arguments.source, minimums, maximums, clean_files, strict=True
+            )
+        )
     )
     paths = write_merged_dataset(result, arguments.output_dir)
     print(f"merged_clean_rows={len(result.metadata_rows)}")

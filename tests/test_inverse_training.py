@@ -15,6 +15,7 @@ from rf_trap_forward.inverse_training import (
     load_inverse_dataset,
     split_inverse_dataset,
     train_inverse_baselines,
+    write_inverse_training_outputs,
 )
 
 
@@ -105,3 +106,22 @@ def test_tiny_three_model_training_smoke_run(tmp_path: Path) -> None:
         assert np.all(np.isfinite(evaluation.predictions_m))
         assert np.isfinite(evaluation.metrics.overall_mae_um)
 
+
+def test_output_writer_can_skip_large_random_forest_artifact(tmp_path: Path) -> None:
+    """All models remain evaluated when only random-forest serialization is skipped."""
+
+    dataset = load_inverse_dataset(_write_training_csv(tmp_path / "clean.csv", rows=48))
+    result = train_inverse_baselines(
+        dataset, test_size=0.2, random_state=42, smoke_test=True
+    )
+    paths = write_inverse_training_outputs(
+        result,
+        tmp_path / "outputs",
+        skip_model_artifacts=("random_forest",),
+    )
+
+    assert {path.name for path in paths.model_paths} == {"ridge.joblib", "mlp.joblib"}
+    assert not (tmp_path / "outputs" / "random_forest.joblib").exists()
+    assert (tmp_path / "outputs" / "ridge.joblib").is_file()
+    assert (tmp_path / "outputs" / "mlp.joblib").is_file()
+    assert "random_forest" in paths.metrics_csv.read_text(encoding="utf-8")

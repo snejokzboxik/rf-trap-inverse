@@ -78,3 +78,29 @@ def test_duplicate_wolfram_input_is_rejected_before_writing(tmp_path: Path) -> N
     second = _source(tmp_path / "second", 2, [differently_formatted_duplicate])
     with pytest.raises(ValueError, match="duplicate Wolfram displacement input"):
         merge_clean_datasets((MergeSource(first), MergeSource(second)))
+
+
+def test_merge_accepts_prior_ml_view_and_preserves_row_seeds(tmp_path: Path) -> None:
+    """A previously merged ML view may carry multiple source seeds by row."""
+
+    prior = tmp_path / "prior_merged"
+    prior.mkdir()
+    rows = [_row(1, 1), _row(2, 2)]
+    rows[1]["seed"] = "8"
+    with (prior / "synthetic_clean_ml.csv").open(
+        "w", encoding="utf-8", newline=""
+    ) as stream:
+        writer = csv.DictWriter(stream, fieldnames=CLEAN_CSV_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    (prior / "synthetic_summary.json").write_text(
+        json.dumps({"kind": "merged_synthetic_dataset"}), encoding="utf-8"
+    )
+
+    result = merge_clean_datasets(
+        (MergeSource(prior, clean_filename="synthetic_clean_ml.csv"),)
+    )
+
+    assert [row["source_seed"] for row in result.metadata_rows] == ["7", "8"]
+    assert result.source_rows[0]["source_clean_file"] == "synthetic_clean_ml.csv"
+    assert result.source_rows[0]["source_seeds"] == [7, 8]

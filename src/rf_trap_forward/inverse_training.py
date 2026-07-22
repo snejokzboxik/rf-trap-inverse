@@ -387,9 +387,15 @@ def train_inverse_baselines(
 def write_inverse_training_outputs(
     result: InverseTrainingResult,
     output_directory: str | Path,
+    *,
+    skip_model_artifacts: Sequence[str] = (),
 ) -> InverseTrainingOutputPaths:
     """Write tabular metrics, held-out predictions, plots, models, and README."""
 
+    skipped = set(skip_model_artifacts)
+    unknown = skipped.difference(MODEL_NAMES)
+    if unknown:
+        raise ValueError(f"unknown model artifacts requested for skipping: {sorted(unknown)}")
     output = Path(output_directory)
     plots = output / "plots"
     output.mkdir(parents=True, exist_ok=True)
@@ -400,17 +406,23 @@ def write_inverse_training_outputs(
         test_predictions_csv=output / "test_predictions.csv",
         readme_markdown=output / "README.md",
         plot_directory=plots,
-        model_paths=tuple(output / f"{name}.joblib" for name in MODEL_NAMES),
+        model_paths=tuple(
+            output / f"{name}.joblib" for name in MODEL_NAMES if name not in skipped
+        ),
     )
     _write_metrics_csv(result, paths.metrics_csv)
     _write_per_output_csv(result, paths.per_output_metrics_csv)
     _write_predictions_csv(result, paths.test_predictions_csv)
-    for evaluation, path in zip(result.evaluations, paths.model_paths, strict=True):
-        joblib.dump(evaluation.estimator, path)
+    for evaluation in result.evaluations:
+        if evaluation.name not in skipped:
+            joblib.dump(evaluation.estimator, output / f"{evaluation.name}.joblib")
     _write_prediction_scatter(result, plots / "predicted_vs_true.png")
     _write_error_histogram(result, plots / "coordinate_error_histogram.png")
     _write_vector_error_boxplot(result, plots / "electrode_vector_error.png")
-    paths.readme_markdown.write_text(_training_readme(result), encoding="utf-8")
+    paths.readme_markdown.write_text(
+        _training_readme(result, tuple(name for name in MODEL_NAMES if name not in skipped)),
+        encoding="utf-8",
+    )
     return paths
 
 
@@ -606,7 +618,10 @@ def _write_vector_error_boxplot(result: InverseTrainingResult, path: Path) -> No
     plt.close(figure)
 
 
-def _training_readme(result: InverseTrainingResult) -> str:
+def _training_readme(
+    result: InverseTrainingResult,
+    saved_model_names: Sequence[str] = MODEL_NAMES,
+) -> str:
     best = result.best_evaluation
     baseline = result.mean_predictor_metrics
     mae_improvement_percent = 100.0 * (
@@ -676,7 +691,9 @@ def _training_readme(result: InverseTrainingResult) -> str:
             "",
             "## Saved models and plots",
             "",
-            "- `ridge.joblib`, `random_forest.joblib`, and `mlp.joblib` include preprocessing where applicable.",
+            "- Saved model artifacts: "
+            + ", ".join(f"`{name}.joblib`" for name in saved_model_names)
+            + ". Metrics still include every fitted model.",
             "- `plots/predicted_vs_true.png`",
             "- `plots/coordinate_error_histogram.png`",
             "- `plots/electrode_vector_error.png`",
@@ -719,6 +736,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Use lightweight model settings; intended only for tests.",
     )
+    parser.add_argument(
+        "--skip-model-artifact",
+        action="append",
+        choices=MODEL_NAMES,
+        default=[],
+        help="fit and evaluate a model but do not serialize its joblib artifact",
+    )
     return parser
 
 
@@ -744,7 +768,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         smoke_test=arguments.smoke_test,
         progress_callback=_print_progress,
     )
-    paths = write_inverse_training_outputs(result, arguments.output_dir)
+    paths = write_inverse_training_outputs(
+        result,
+        arguments.output_dir,
+        skip_model_artifacts=arguments.skip_model_artifact,
+    )
     best = result.best_evaluation
     print(f"samples={dataset.X_m.shape[0]}")
     print(f"train_samples={result.split.X_train_m.shape[0]}")
