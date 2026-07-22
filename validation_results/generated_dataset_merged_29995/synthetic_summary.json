@@ -1,0 +1,50 @@
+{
+  "ambiguous_branch_count": 0,
+  "ambiguous_minimum_distance_m": 0.00015,
+  "clean_samples": 29995,
+  "completed_samples": 29995,
+  "coordinate_units": "metres",
+  "kind": "merged_synthetic_dataset",
+  "max_displacement_m": 0.0005,
+  "max_displacement_um": 500.0,
+  "merged_sample_id_range": [
+    1,
+    29995
+  ],
+  "reference_row5_used": false,
+  "rejected_samples": 0,
+  "requested_samples": 29995,
+  "solver_failure_count": 0,
+  "source_dataset_source_sample_id_duplicates": 0,
+  "sources": [
+    {
+      "included_clean_rows": 5000,
+      "max_sample_id": null,
+      "min_sample_id": 1,
+      "source_dataset": "generated_dataset_5000",
+      "source_directory": "C:\\Users\\arosl\\Desktop\\projects py\\rf_trap_inverse\\validation_results\\generated_dataset_5000",
+      "source_seed": 20260721
+    },
+    {
+      "included_clean_rows": 20000,
+      "max_sample_id": null,
+      "min_sample_id": 1,
+      "source_dataset": "generated_dataset_20000",
+      "source_directory": "C:\\Users\\arosl\\Desktop\\projects py\\rf_trap_inverse\\validation_results\\generated_dataset_20000",
+      "source_seed": 20260723
+    },
+    {
+      "included_clean_rows": 4995,
+      "max_sample_id": null,
+      "min_sample_id": 5001,
+      "source_dataset": "generated_dataset_10000",
+      "source_directory": "C:\\Users\\arosl\\Desktop\\projects py\\rf_trap_inverse\\validation_results\\generated_dataset_10000",
+      "source_seed": 20260721
+    }
+  ],
+  "status_counts": {
+    "clean": 29995
+  },
+  "wolfram_input_duplicates": 0,
+  "wolfram_to_fem_transform": "[-W3, -W1, -W4, -W2]"
+}

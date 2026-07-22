@@ -59,6 +59,9 @@ def test_valid_generated_split_passes_and_writes_requested_outputs(
     assert audit.polar_order_violations == 0
     paths = write_dataset_qa_outputs(audit, tmp_path / "qa")
     assert paths.report_markdown.is_file()
+    report = paths.report_markdown.read_text(encoding="utf-8")
+    assert "N=2 is suitable" in report
+    assert "N=1000" not in report
     assert paths.summary_stats_csv.is_file()
     assert all(
         item.is_file()

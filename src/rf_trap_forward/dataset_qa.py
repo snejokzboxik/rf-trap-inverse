@@ -743,7 +743,7 @@ def _distribution_observations(
         "near that seam can see a label permutation despite continuous physics."
     )
     observations.append(
-        "N=1000 is suitable for a first inverse-model smoke experiment, not a final "
+        f"N={raw.shape[0]} is suitable for inverse-model experiments, not a final "
         "coverage claim for the full eight-dimensional displacement space."
     )
     return tuple(observations)
@@ -922,7 +922,7 @@ def _markdown_report(audit: DatasetQAAudit) -> str:
         lines.extend(
             (
                 "The dataset passes every file-integrity, numerical, geometry, separation, and deterministic-label check and is safe for a **first inverse-model experiment**.",
-                "This is not evidence that N=1000 fully covers the eight-dimensional input space or that the four-electrode FEM is a complete physical model of every reference branch. Keep row-5-like ambiguities quarantined if they appear in future generation.",
+                f"This is not evidence that N={audit.clean_row_count} fully covers the eight-dimensional input space or that the four-electrode FEM is a complete physical model of every reference branch. Keep row-5-like ambiguities quarantined if they appear in future generation.",
             )
         )
     return "\n".join(lines) + "\n"
