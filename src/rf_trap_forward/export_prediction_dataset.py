@@ -226,6 +226,7 @@ def _summary(
         "finite_values": True,
         "inference_only": True,
         "model_path": str(Path(model_path)),
+        "model_context": _model_context(dataset_path, model_path),
         "predicted_coordinates_outside_500_um": int(
             np.count_nonzero(np.abs(export.predicted_displacements_m) > 500.0e-6)
         ),
@@ -240,10 +241,27 @@ def _summary(
     }
 
 
+def _model_context(dataset_path: str | Path, model_path: str | Path) -> str:
+    """Describe the documented role of known merged-model export artifacts."""
+
+    combined = f"{dataset_path} {model_path}".lower()
+    if "merged_51974" in combined:
+        return (
+            "latest/largest trained pipeline and best ordinary regression MAE; "
+            "merged N=29995 retains the best observed closed-loop headline metric"
+        )
+    if "merged_29995" in combined:
+        return (
+            "best observed closed-loop headline metric; merged N=51974 is the "
+            "latest/largest trained pipeline and has the best ordinary regression MAE"
+        )
+    return "saved inverse-model inference; no ranked project role assigned"
+
+
 def _readme(summary: dict[str, object]) -> str:
     return "\n".join(
         (
-            "# Prediction export from the merged N=29995 inverse model",
+            "# Prediction export from a saved merged inverse model",
             "",
             f"This file contains **{summary['row_count']}** deterministic rows selected "
             f"with random state `{summary['random_state']}`. It is saved-model inference "
@@ -270,6 +288,7 @@ def _readme(summary: dict[str, object]) -> str:
             "",
             f"- Source dataset: `{summary['dataset_path']}`",
             f"- Saved model: `{summary['model_path']}`",
+            f"- Model context: {summary['model_context']}.",
             "- Metre-valued columns end in `_m`; micrometre-valued columns end in `_um`.",
             "",
             "## Inference summary",
@@ -295,13 +314,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--dataset",
         type=Path,
         default=Path(
-            "validation_results/generated_dataset_merged_29995/synthetic_clean_ml.csv"
+            "validation_results/generated_dataset_merged_51974/synthetic_clean_ml.csv"
         ),
     )
     parser.add_argument(
         "--model",
         type=Path,
-        default=Path("validation_results/inverse_model_merged_29995/mlp.joblib"),
+        default=Path("validation_results/inverse_model_merged_51974/mlp.joblib"),
     )
     parser.add_argument("--n", type=int, default=300)
     parser.add_argument("--random-state", type=int, default=42)
@@ -309,7 +328,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-csv",
         type=Path,
         default=Path(
-            "validation_results/prediction_export_merged_29995/"
+            "validation_results/prediction_export_merged_51974/"
             "prediction_dataset_300.csv"
         ),
     )

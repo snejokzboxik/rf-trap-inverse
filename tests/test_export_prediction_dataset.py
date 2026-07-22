@@ -13,6 +13,7 @@ from rf_trap_forward.export_prediction_dataset import (
     PREDICTED_MICROMETRE_COLUMNS,
     PREDICTION_EXPORT_COLUMNS,
     TRUE_MICROMETRE_COLUMNS,
+    build_parser,
     build_prediction_export,
     write_prediction_export,
 )
@@ -66,6 +67,7 @@ def test_prediction_export_schema_count_finiteness_and_units(tmp_path: Path) -> 
     assert summary["finite_values"] is True
     assert summary["inference_only"] is True
     assert summary["evaluation_scope"] == "random source rows; not guaranteed held-out"
+    assert summary["model_context"] == "saved inverse-model inference; no ranked project role assigned"
 
 
 def test_prediction_export_selection_is_deterministic() -> None:
@@ -75,3 +77,12 @@ def test_prediction_export_selection_is_deterministic() -> None:
     second = build_prediction_export(_dataset(), _OffsetModel(), n=7, random_state=3)
     assert np.array_equal(first.sample_ids, second.sample_ids)
     assert np.array_equal(first.predicted_displacements_m, second.predicted_displacements_m)
+
+
+def test_default_export_uses_latest_largest_merged_model() -> None:
+    """Future no-argument exports should default to the N=51974 pipeline."""
+
+    arguments = build_parser().parse_args([])
+    assert "merged_51974" in str(arguments.dataset)
+    assert "merged_51974" in str(arguments.model)
+    assert "prediction_export_merged_51974" in str(arguments.output_csv)

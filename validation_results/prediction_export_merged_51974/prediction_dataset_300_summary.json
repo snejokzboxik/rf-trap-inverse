@@ -1,0 +1,31 @@
+{
+  "coordinate_error_sign": "predicted minus true",
+  "coordinate_mae_um": 100.51087992572089,
+  "coordinate_max_absolute_error_um": 429.631693024387,
+  "coordinate_rmse_um": 130.23775566864086,
+  "dataset_path": "validation_results\\generated_dataset_merged_51974\\synthetic_clean_ml.csv",
+  "electrode_order": [
+    "W1 upper-right",
+    "W2 lower-right",
+    "W3 upper-left",
+    "W4 lower-left"
+  ],
+  "electrode_vector_error_max_um": 438.5644113814939,
+  "electrode_vector_error_mean_um": 161.1649193556113,
+  "electrode_vector_error_median_um": 144.04787485647188,
+  "electrode_vector_error_p95_um": 336.2739670895095,
+  "evaluation_scope": "random source rows; not guaranteed held-out",
+  "finite_values": true,
+  "inference_only": true,
+  "model_context": "latest/largest trained pipeline and best ordinary regression MAE; merged N=29995 retains the best observed closed-loop headline metric",
+  "model_path": "validation_results\\inverse_model_merged_51974\\mlp.joblib",
+  "predicted_coordinates_outside_500_um": 9,
+  "random_state": 20260725,
+  "row_count": 300,
+  "row_mae_max_um": 278.3827975311781,
+  "row_mae_mean_um": 100.51087992572089,
+  "row_mae_median_um": 90.04195922228541,
+  "row_mae_p95_um": 199.68198195776083,
+  "selection": "uniform sample without replacement, sorted by source row index",
+  "wolfram_to_fem_transform": "[-W3, -W1, -W4, -W2]"
+}

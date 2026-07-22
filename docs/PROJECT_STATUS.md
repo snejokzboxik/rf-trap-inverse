@@ -22,6 +22,9 @@
   with zero duplicates, zero critical issues, and contiguous merged IDs.
 - The N=51974 MLP preserves exactly three robust minima in all 100 requested
   closed-loop cases, with zero solver failures and zero ambiguous rejections.
+- Prediction exports now exist for both merged N=29995 and merged N=51974.
+  Future standard exports default to N=51974 as the latest/largest pipeline;
+  use N=29995 explicitly when the closed-loop-best model is requested.
 
 ## Current best metrics
 
@@ -65,6 +68,8 @@ paired model comparison. See [MERGED_DATASET_51974_RESULTS.md](MERGED_DATASET_51
   MLP learning curve from N=1000 through N=29995.
 - [MERGED_DATASET_51974_RESULTS.md](MERGED_DATASET_51974_RESULTS.md): latest
   merge provenance, QA, model metrics, and N=100 closed-loop results.
+- [PREDICTION_EXPORTS.md](PREDICTION_EXPORTS.md): standard 8 true displacement
+  -> 6 minima -> 8 predicted displacement export convention and model choice.
 
 ## Next steps
 
