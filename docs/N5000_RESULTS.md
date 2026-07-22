@@ -4,6 +4,9 @@ This report records the completed N=5000 synthetic dataset, its QA and inverse
 training results, and small physical closed-loop checks. It does not claim an
 independent experimental validation.
 
+For the subsequent N=20000 scale-up and its N=100 closed-loop check, see
+[N20000_RESULTS.md](N20000_RESULTS.md).
+
 ## Dataset generation
 
 - Requested and clean samples: **5000**; rejected samples: **0**.
