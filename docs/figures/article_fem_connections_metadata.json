@@ -1,0 +1,118 @@
+{
+  "connections": {
+    "in_phase": {
+      "definition": "all four electrodes at the same RF phase",
+      "electrode_potentials_v": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "minima_coordinates_m": [
+        [
+          0.0004041766975772297,
+          0.003959956559870763
+        ],
+        [
+          -0.0035092586544168292,
+          -0.0017096175047608846
+        ],
+        [
+          0.0025945541002691318,
+          -0.0018538843783256322
+        ]
+      ],
+      "minimum_count": 3,
+      "recorded_clean_minima_coordinates_m": [
+        [
+          0.0004041766975772297,
+          0.003959956559870763
+        ],
+        [
+          -0.0035092586544168292,
+          -0.0017096175047608846
+        ],
+        [
+          0.0025945541002691318,
+          -0.0018538843783256322
+        ]
+      ],
+      "relative_free_residual": 1.2010081229948478e-15
+    },
+    "quadrupole": {
+      "definition": "alternating checkerboard in FEM order",
+      "electrode_potentials_v": [
+        1.0,
+        -1.0,
+        -1.0,
+        1.0
+      ],
+      "minima_coordinates_m": [
+        [
+          -8.584937143697127e-05,
+          -0.00014388622165907036
+        ]
+      ],
+      "minimum_count": 1,
+      "relative_free_residual": 7.195842169360078e-16
+    }
+  },
+  "coordinate_units": "metres",
+  "effective_potential_proxy": "Psi = |E|^2 in V^2/m^2",
+  "fem_electrode_order": [
+    "F1 upper-left",
+    "F2 upper-right",
+    "F3 lower-left",
+    "F4 lower-right"
+  ],
+  "mesh": {
+    "central_mesh_size_m": 0.0005,
+    "node_count": 3996,
+    "triangle_count": 7384
+  },
+  "outputs": [
+    "C:/Users/arosl/Desktop/projects py/rf_trap_inverse/docs/figures/article_fem_connections.png",
+    "C:/Users/arosl/Desktop/projects py/rf_trap_inverse/docs/figures/article_fem_connections.pdf",
+    "C:/Users/arosl/Desktop/projects py/rf_trap_inverse/docs/figures/article_fem_connections.svg"
+  ],
+  "selected_row_index": 0,
+  "selected_sample_id": 1,
+  "source_dataset": "merged N=51974 clean ML dataset",
+  "true_displacements_fem_order_m": [
+    [
+      3.1041839536407614e-05,
+      -0.0001233176908558522
+    ],
+    [
+      -0.0002009808922113865,
+      0.00024199758916539115
+    ],
+    [
+      -0.0003935649182198452,
+      -0.00020513135311575918
+    ],
+    [
+      7.528419476727556e-05,
+      -5.273131194385788e-05
+    ]
+  ],
+  "true_displacements_wolfram_order_m": [
+    [
+      0.0002009808922113865,
+      -0.00024199758916539115
+    ],
+    [
+      -7.528419476727556e-05,
+      5.273131194385788e-05
+    ],
+    [
+      -3.1041839536407614e-05,
+      0.0001233176908558522
+    ],
+    [
+      0.0003935649182198452,
+      0.00020513135311575918
+    ]
+  ],
+  "wolfram_to_fem_transform": "[-W3, -W1, -W4, -W2]"
+}
